@@ -445,8 +445,12 @@ static void parse_setup (struct isdn_msg msgs[], msg_t *msg, struct misdn_bchann
 		switch (capability) {
 		case -1: bc->capability=INFO_CAPABILITY_DIGITAL_UNRESTRICTED;
 			break;
-		case 0: bc->capability=INFO_CAPABILITY_SPEECH;
+		// [arinc patch: start]
+		// SPEECH is 1
+		// case 0: bc->capability=INFO_CAPABILITY_SPEECH;
+		case 1: bc->capability=INFO_CAPABILITY_SPEECH;
 			break;
+		// [arinc patch: end]
 		case 18: bc->capability=INFO_CAPABILITY_VIDEO;
 			break;
 		case 8: bc->capability=INFO_CAPABILITY_DIGITAL_UNRESTRICTED;
@@ -596,8 +600,12 @@ static msg_t *build_setup (struct isdn_msg msgs[], struct misdn_bchannel *bc, in
 		}
 
 		switch (bc->capability) {
-		case INFO_CAPABILITY_SPEECH: capability = 0;
+		// [arinc patch: start]
+		// SPEECH is 1
+		// case INFO_CAPABILITY_SPEECH: capability = 0;
+		case INFO_CAPABILITY_SPEECH: capability = 1;
 			break;
+		// [arinc patch: end]
 		case INFO_CAPABILITY_DIGITAL_UNRESTRICTED: capability = 8;
 			user=-1;
 			mode=bc->mode;
