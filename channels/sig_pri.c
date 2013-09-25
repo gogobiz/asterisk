@@ -6144,12 +6144,15 @@ static void sig_pri_handle_setup(struct sig_pri_span *pri, pri_event *e)
 		pri_answer(pri->pri, e->ring.call, PVT_TO_CHANNEL(pri->pvts[chanpos]), 1);
 	} else {
 		pri->pvts[chanpos]->call_level = SIG_PRI_CALL_LEVEL_OVERLAP;
+		// [arinc patch: start]
+		// SETUP ACK not supported
+						// [arinc patch: end]
 #if defined(HAVE_PRI_SETUP_ACK_INBAND)
-		pri_setup_ack(pri->pri, e->ring.call,
-			PVT_TO_CHANNEL(pri->pvts[chanpos]), 1, need_dialtone);
+		//pri_setup_ack(pri->pri, e->ring.call,
+			//PVT_TO_CHANNEL(pri->pvts[chanpos]), 1, need_dialtone);
 #else	/* !defined(HAVE_PRI_SETUP_ACK_INBAND) */
-		pri_need_more_info(pri->pri, e->ring.call,
-			PVT_TO_CHANNEL(pri->pvts[chanpos]), 1);
+		//pri_need_more_info(pri->pri, e->ring.call,
+			//PVT_TO_CHANNEL(pri->pvts[chanpos]), 1);
 #endif	/* !defined(HAVE_PRI_SETUP_ACK_INBAND) */
 	}
 
@@ -6249,7 +6252,10 @@ static void *pri_dchannel(void *vpri)
 	int nextidle = -1;
 	int haveidles;
 	int activeidles;
-	unsigned int len;
+	// [arinc patch: start]
+	// unused variable
+	// unsigned int len;
+	// [arinc patch: end]
 
 	gettimeofday(&lastidle, NULL);
 	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
@@ -7445,6 +7451,9 @@ static void *pri_dchannel(void *vpri)
 						pri_check_restart(pri);
 				}
 				break;
+			// [arinc patch: start]
+			// SETUP ACK not supported
+			#if 0
 			case PRI_EVENT_SETUP_ACK:
 				if (sig_pri_is_cis_call(e->setup_ack.channel)) {
 					sig_pri_handle_cis_subcmds(pri, e->e, e->setup_ack.subcmds,
@@ -7512,6 +7521,8 @@ static void *pri_dchannel(void *vpri)
 				}
 				sig_pri_unlock_private(pri->pvts[chanpos]);
 				break;
+			#endif
+			// [arinc patch: end]
 			case PRI_EVENT_NOTIFY:
 				if (sig_pri_is_cis_call(e->notify.channel)) {
 #if defined(HAVE_PRI_CALL_HOLD)
@@ -8802,7 +8813,10 @@ int sig_pri_digit_begin(struct sig_pri_chan *pvt, struct ast_channel *ast, char 
 		}
 		if (pvt->call_level < SIG_PRI_CALL_LEVEL_PROCEEDING) {
 			pri_grab(pvt, pvt->pri);
-			pri_information(pvt->pri->pri, pvt->call, digit);
+			// [arinc patch: start]
+			// SETUP ACK not supported
+			// pri_information(pvt->pri->pri, pvt->call, digit);
+			// [arinc patch: end]
 			pri_rel(pvt->pri);
 			return 0;
 		}
