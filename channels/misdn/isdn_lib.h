@@ -169,7 +169,11 @@ enum ie_name_e {
 };
 
 enum { /* bearer capability */
-	INFO_CAPABILITY_SPEECH=0,
+	// [arinc patch: start]
+	// SPEECH is 1
+	// INFO_CAPABILITY_SPEECH=0,
+	INFO_CAPABILITY_SPEECH=0x01,
+	// [arinc patch: end]
 	INFO_CAPABILITY_AUDIO_3_1K=0x10 ,
 	INFO_CAPABILITY_AUDIO_7K=0x11 ,
 	INFO_CAPABILITY_VIDEO =0x18,
@@ -813,8 +817,11 @@ int misdn_lib_is_ptp(int port);
 int misdn_lib_get_maxchans(int port);
 
 void misdn_lib_reinit_nt_stack(int port);
-
-#define PRI_TRANS_CAP_SPEECH                                    0x0
+// [arinc patch: start]
+// SPEECH is 1
+// #define PRI_TRANS_CAP_SPEECH                                    0x0
+#define PRI_TRANS_CAP_SPEECH                                    0x01
+// [arinc patch: end]
 #define PRI_TRANS_CAP_DIGITAL                                   0x08
 #define PRI_TRANS_CAP_RESTRICTED_DIGITAL                        0x09
 #define PRI_TRANS_CAP_3_1K_AUDIO                                0x10
