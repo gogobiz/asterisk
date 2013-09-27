@@ -211,6 +211,7 @@
 						<para>R/W ISDN Transfer Capability, one of:</para>
 						<enumlist>
 							<enum name="SPEECH" />
+                            <enum name="ARINC" />
 							<enum name="DIGITAL" />
 							<enum name="RESTRICTED_DIGITAL" />
 							<enum name="3K1AUDIO" />
@@ -342,7 +343,7 @@
 	} while (0)
 
 static const char * const transfercapability_table[0x20] = {
-	"SPEECH", "UNK", "UNK", "UNK", "UNK", "UNK", "UNK", "UNK",
+	"SPEECH", "ARINC", "UNK", "UNK", "UNK", "UNK", "UNK", "UNK",
 	"DIGITAL", "RESTRICTED_DIGITAL", "UNK", "UNK", "UNK", "UNK", "UNK", "UNK",
 	"3K1AUDIO", "DIGITAL_W_TONES", "UNK", "UNK", "UNK", "UNK", "UNK", "UNK",
 	"VIDEO", "UNK", "UNK", "UNK", "UNK", "UNK", "UNK", "UNK", };
