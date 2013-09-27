@@ -169,11 +169,8 @@ enum ie_name_e {
 };
 
 enum { /* bearer capability */
-	// [arinc patch: start]
-	// SPEECH is 1
-	// INFO_CAPABILITY_SPEECH=0,
-	INFO_CAPABILITY_SPEECH=0x01,
-	// [arinc patch: end]
+	INFO_CAPABILITY_SPEECH=0,
+	INFO_CAPABILITY_ARINC_SPEECH=0x01 ,
 	INFO_CAPABILITY_AUDIO_3_1K=0x10 ,
 	INFO_CAPABILITY_AUDIO_7K=0x11 ,
 	INFO_CAPABILITY_VIDEO =0x18,
