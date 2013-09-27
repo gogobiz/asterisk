@@ -735,6 +735,8 @@ char *ast_transfercapability2str(int transfercapability)
 	switch (transfercapability) {
 	case AST_TRANS_CAP_SPEECH:
 		return "SPEECH";
+	case AST_TRANS_CAP_ARINC_SPEECH:
+		return "ARINC";
 	case AST_TRANS_CAP_DIGITAL:
 		return "DIGITAL";
 	case AST_TRANS_CAP_RESTRICTED_DIGITAL:
