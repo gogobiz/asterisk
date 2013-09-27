@@ -290,6 +290,7 @@ void bchdev_echocancel_deactivate(struct misdn_bchannel* dev);
 static char *bearer2str(int cap) {
 	static char *bearers[]={
 		"Speech",
+		"ARINC",
 		"Audio 3.1k",
 		"Unres Digital",
 		"Res Digital",
@@ -300,17 +301,20 @@ static char *bearer2str(int cap) {
 	case INFO_CAPABILITY_SPEECH:
 		return bearers[0];
 		break;
-	case INFO_CAPABILITY_AUDIO_3_1K:
+	case INFO_CAPABILITY_ARINC_SPEECH:
 		return bearers[1];
 		break;
-	case INFO_CAPABILITY_DIGITAL_UNRESTRICTED:
+	case INFO_CAPABILITY_AUDIO_3_1K:
 		return bearers[2];
 		break;
-	case INFO_CAPABILITY_DIGITAL_RESTRICTED:
+	case INFO_CAPABILITY_DIGITAL_UNRESTRICTED:
 		return bearers[3];
 		break;
-	default:
+	case INFO_CAPABILITY_DIGITAL_RESTRICTED:
 		return bearers[4];
+		break;
+	default:
+		return bearers[5];
 		break;
 	}
 }

@@ -2364,6 +2364,7 @@ struct allowed_bearers {
 static const struct allowed_bearers allowed_bearers_array[] = {
 	/* Name,                      Displayable Name       Bearer Capability,                    Deprecated */
 	{ "speech",                  "Speech",               INFO_CAPABILITY_SPEECH,               0 },
+	{ "arinc",                   "ARINC Speech",         INFO_CAPABILITY_ARINC_SPEECH,         0 },
 	{ "3_1khz",                  "3.1KHz Audio",         INFO_CAPABILITY_AUDIO_3_1K,           0 },
 	{ "digital_unrestricted",    "Unrestricted Digital", INFO_CAPABILITY_DIGITAL_UNRESTRICTED, 0 },
 	{ "digital_restricted",      "Restricted Digital",   INFO_CAPABILITY_DIGITAL_RESTRICTED,   0 },
