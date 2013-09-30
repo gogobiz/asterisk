@@ -18305,6 +18305,10 @@ static int process_dahdi(struct dahdi_chan_conf *confp, const char *cat, struct 
 					confp->pri.pri.switchtype = PRI_SWITCH_EUROISDN_E1;
 				else if (!strcasecmp(v->value, "qsig"))
 					confp->pri.pri.switchtype = PRI_SWITCH_QSIG;
+                else if (!strcasecmp(v->value, "arinc"))
+					confp->pri.pri.switchtype = PRI_SWITCH_ARINC;
+                else if (!strcasecmp(v->value, "arinc746"))
+					confp->pri.pri.switchtype = PRI_SWITCH_ARINC;
 				else {
 					ast_log(LOG_ERROR, "Unknown switchtype '%s' at line %d.\n", v->value, v->lineno);
 					return -1;
