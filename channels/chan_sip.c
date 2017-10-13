@@ -14388,25 +14388,29 @@ static void initreqprep(struct sip_request *req, struct sip_pvt *p, int sipmetho
  	*/
 	ast_string_field_set(p, uri, ast_str_buffer(invite));
 
- 	if (!ast_strlen_zero(p->todnid)) {
- 		/*! \todo Need to add back the VXML URL here at some point, possibly use build_string for all this junk */
- 		if (!strchr(p->todnid, '@')) {
- 			/* We have no domain in the dnid */
-			ret = ast_str_set(&to, 0, "<sip:%s@%s>%s%s", p->todnid, p->tohost, ast_strlen_zero(p->theirtag) ? "" : ";tag=", p->theirtag);
- 		} else {
-			ret = ast_str_set(&to, 0, "<sip:%s>%s%s", p->todnid, ast_strlen_zero(p->theirtag) ? "" : ";tag=", p->theirtag);
- 		}
- 	} else {
- 		if (sipmethod == SIP_NOTIFY && !ast_strlen_zero(p->theirtag)) {
- 			/* If this is a NOTIFY, use the From: tag in the subscribe (RFC 3265) */
-			ret = ast_str_set(&to, 0, "<%s%s>;tag=%s", (strncasecmp(p->uri, "sip:", 4) ? "sip:" : ""), p->uri, p->theirtag);
- 		} else if (p->options && p->options->vxml_url) {
- 			/* If there is a VXML URL append it to the SIP URL */
-			ret = ast_str_set(&to, 0, "<%s>;%s", p->uri, p->options->vxml_url);
- 		} else {
-			ret = ast_str_set(&to, 0, "<%s>", p->uri);
-		}
- 	}
+	// Format: "[dnid ]<uri>[;tag=theirtag][;vxml]"
+    	// Note: ast_strlen_zero returns 0 if the string is not null AND not zero-length
+	// Note: ast_strlen_zero returns 1 if the string is null OR zero-length
+	char display_name[256]={'\0'}, prefix[256]={'\0'}, tag[256]={'\0'}, vxml[256]={'\0'}; // initialize to all NULs
+	// ST4300: required for Aircell SIU compatibility
+	if ( ast_strlen_zero(p->todnid)==0 ) {
+		snprintf(display_name, sizeof(display_name), "\"%s\" ", p->todnid);
+	}
+ 	if ( strncasecmp(p->uri, "sip:", 4) ) {
+		snprintf(prefix, sizeof(prefix), "sip:");
+	}
+	// RFC 3265, section 3.3.4: If this is a NOTIFY, use the "From" header
+	// "tag" parameter of the SUBSCRIBE
+	if ( sipmethod==SIP_NOTIFY && ast_strlen_zero(p->theirtag)==0 ) {
+		snprintf(tag, sizeof(tag), ";tag=%s", p->theirtag);
+	}
+	// RFC 5552: SIP Interface to VoiceXML Media Services
+	if ( p->options && p->options->vxml_url ) {
+		snprintf(vxml, sizeof(vxml), ";voicexml=%s", p->options->vxml_url);
+	}
+
+	ret = ast_str_set(&to, 0, "%s<%s%s>%s%s", display_name, prefix, p->uri, tag, vxml);
+  
 	if (ret == AST_DYNSTR_BUILD_FAILED) {
 		/* We don't have an escape path from here... */
 		ast_log(LOG_ERROR, "The To header was truncated in call '%s'. This call setup will fail.\n", p->callid);
