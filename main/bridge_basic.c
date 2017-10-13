@@ -3197,6 +3197,10 @@ static int grab_transfer(struct ast_channel *chan, char *exten, size_t exten_len
 			/* 0 for invalid extension dialed. */
 			if (ast_strlen_zero(exten)) {
 				ast_debug(1, "%s dialed no digits.\n", ast_channel_name(chan));
+			} else if (strcmp (exten, "*") == 0) {
+				ast_log(LOG_NOTICE, "%s Transfer cancelled with * code\n", ast_channel_name(chan));
+				res = -1;
+				break;
 			} else {
 				ast_debug(1, "%s dialed '%s@%s' does not exist.\n",
 					ast_channel_name(chan), exten, context);
