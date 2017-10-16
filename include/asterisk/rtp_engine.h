@@ -531,7 +531,7 @@ struct ast_rtp_engine {
 	/*! Module this RTP engine came from, used for reference counting */
 	struct ast_module *mod;
 	/*! Callback for setting up a new RTP instance */
-	int (*new)(struct ast_rtp_instance *instance, struct ast_sched_context *sched, struct ast_sockaddr *sa, void *data);
+	int (*new)(struct ast_rtp_instance *instance, struct ast_sched_context *sched, struct ast_sockaddr *sa, void *data, const char *peername);
 	/*! Callback for destroying an RTP instance */
 	int (*destroy)(struct ast_rtp_instance *instance);
 	/*! Callback for writing out a frame */
@@ -801,6 +801,38 @@ int ast_rtp_glue_unregister(struct ast_rtp_glue *glue);
 struct ast_rtp_instance *ast_rtp_instance_new(const char *engine_name,
                 struct ast_sched_context *sched, const struct ast_sockaddr *sa,
                 void *data);
+
+/*!
+ * Gogo Edit --
+ * \brief Create a new RTP instance
+ *
+ * \param engine_name Name of the engine to use for the RTP instance
+ * \param sched Scheduler context that the RTP engine may want to use
+ * \param sa Address we want to bind to
+ * \param data Unique data for the engine
+ * \param peername Peername of the dialog creator
+ *
+ * \retval non-NULL success
+ * \retval NULL failure
+ *
+ * Example usage:
+ *
+ * \code
+ * struct ast_rtp_instance *instance = NULL;
+ * instance = ast_rtp_instance_new(NULL, sched, &sin, NULL);
+ * \endcode
+ *
+ * This creates a new RTP instance using the default engine and asks the RTP engine to bind to the address given
+ * in the address structure.
+ *
+ * \note The RTP engine does not have to use the address provided when creating an RTP instance. It may choose to use
+ *       another depending on it's own configuration.
+ *
+ */
+struct ast_rtp_instance *ast_rtp_instance_new_peername(const char *engine_name,
+                struct ast_sched_context *sched, const struct ast_sockaddr *sa,
+                void *data, const char *peername);
+/* End Gogo Edit */
 
 /*!
  * \brief Destroy an RTP instance
