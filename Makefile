@@ -183,6 +183,8 @@ OTHER_SUBDIR_CFLAGS="-I$(ASTTOPDIR)/include"
 # Create OPTIONS variable, but probably we can assign directly to ASTCFLAGS
 OPTIONS=
 
+LDCONFIG_FLAGS=-n
+
 ifeq ($(OSARCH),linux-gnu)
   # flag to tell 'ldconfig' to only process specified directories
   LDCONFIG_FLAGS=-n
