@@ -6025,7 +6025,7 @@ static int dialog_initialize_rtp(struct sip_pvt *dialog)
 	dialog_clean_rtp(dialog);
 
 	ast_sockaddr_copy(&bindaddr_tmp, &bindaddr);
-	if (!(dialog->rtp = ast_rtp_instance_new(dialog->engine, sched, &bindaddr_tmp, NULL))) {
+	if (!(dialog->rtp = ast_rtp_instance_new_peername(dialog->engine, sched, &bindaddr_tmp, NULL, dialog->peername))) {
 		return -1;
 	}
 
@@ -6039,7 +6039,7 @@ static int dialog_initialize_rtp(struct sip_pvt *dialog)
 
 	if (ast_test_flag(&dialog->flags[1], SIP_PAGE2_VIDEOSUPPORT_ALWAYS) ||
 			(ast_test_flag(&dialog->flags[1], SIP_PAGE2_VIDEOSUPPORT) && (ast_format_cap_has_type(dialog->caps, AST_MEDIA_TYPE_VIDEO)))) {
-		if (!(dialog->vrtp = ast_rtp_instance_new(dialog->engine, sched, &bindaddr_tmp, NULL))) {
+		if (!(dialog->vrtp = ast_rtp_instance_new_peername(dialog->engine, sched, &bindaddr_tmp, NULL, dialog->peername))) {
 			return -1;
 		}
 
@@ -6060,7 +6060,7 @@ static int dialog_initialize_rtp(struct sip_pvt *dialog)
 	}
 
 	if (ast_test_flag(&dialog->flags[1], SIP_PAGE2_TEXTSUPPORT)) {
-		if (!(dialog->trtp = ast_rtp_instance_new(dialog->engine, sched, &bindaddr_tmp, NULL))) {
+		if (!(dialog->trtp = ast_rtp_instance_new_peername(dialog->engine, sched, &bindaddr_tmp, NULL, dialog->peername))) {
 			return -1;
 		}
 
@@ -6130,6 +6130,10 @@ static int create_addr_from_peer(struct sip_pvt *dialog, struct sip_peer *peer)
 		ast_format_cap_append_from_cap(dialog->caps, peer->caps, AST_MEDIA_TYPE_UNKNOWN);
 	}
 	dialog->amaflags = peer->amaflags;
+
+	ast_string_field_set(dialog, peername, peer->name);
+	ast_string_field_set(dialog, authname, peer->username);
+ 	ast_string_field_set(dialog, username, peer->username);
 
 	ast_string_field_set(dialog, engine, peer->engine);
 
