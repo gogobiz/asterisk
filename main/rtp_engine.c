@@ -408,6 +408,21 @@ struct ast_rtp_instance *ast_rtp_instance_new(const char *engine_name,
 		struct ast_sched_context *sched, const struct ast_sockaddr *sa,
 		void *data)
 {
+	return ast_rtp_instance_new_peername(engine_name, sched, sa, data,
+		NULL);
+}
+
+
+/*
+ * Aircell Edit. This duplicate function of ast_rtp_instance also passes along
+ * the peername of the initiator. This lets the RTP allocation over-ride
+ * default ports if configured.
+ */
+struct ast_rtp_instance *ast_rtp_instance_new_peername(const char *engine_name,
+		struct ast_sched_context *sched, const struct ast_sockaddr *sa,
+		void *data, const char *peername)
+{
+
 	struct ast_sockaddr address = {{0,}};
 	struct ast_rtp_instance *instance = NULL;
 	struct ast_rtp_engine *engine = NULL;
@@ -454,7 +469,7 @@ struct ast_rtp_instance *ast_rtp_instance_new(const char *engine_name,
 	ast_debug(1, "Using engine '%s' for RTP instance '%p'\n", engine->name, instance);
 
 	/* And pass it off to the engine to setup */
-	if (instance->engine->new(instance, sched, &address, data)) {
+	if (instance->engine->new(instance, sched, &address, data, peername)) {
 		ast_debug(1, "Engine '%s' failed to setup RTP instance '%p'\n", engine->name, instance);
 		ao2_ref(instance, -1);
 		return NULL;

@@ -186,7 +186,7 @@ struct ast_format *ast_multicast_rtp_options_get_format(struct ast_multicast_rtp
 }
 
 /* Forward Declarations */
-static int multicast_rtp_new(struct ast_rtp_instance *instance, struct ast_sched_context *sched, struct ast_sockaddr *addr, void *data);
+static int multicast_rtp_new(struct ast_rtp_instance *instance, struct ast_sched_context *sched, struct ast_sockaddr *addr, void *data, const char *peername);
 static int multicast_rtp_activate(struct ast_rtp_instance *instance);
 static int multicast_rtp_destroy(struct ast_rtp_instance *instance);
 static int multicast_rtp_write(struct ast_rtp_instance *instance, struct ast_frame *frame);
@@ -279,7 +279,7 @@ static void set_if(int sock, const char *if_str)
 }
 
 /*! \brief Function called to create a new multicast instance */
-static int multicast_rtp_new(struct ast_rtp_instance *instance, struct ast_sched_context *sched, struct ast_sockaddr *addr, void *data)
+static int multicast_rtp_new(struct ast_rtp_instance *instance, struct ast_sched_context *sched, struct ast_sockaddr *addr, void *data, const char *peername)
 {
 	struct multicast_rtp *multicast;
 	struct ast_multicast_rtp_options *mcast_options = data;
