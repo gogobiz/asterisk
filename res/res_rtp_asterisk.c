@@ -206,6 +206,22 @@ static struct ast_sockaddr rtpdebugaddr;	/*!< Debug packets to/from this host */
 static struct ast_sockaddr rtcpdebugaddr;	/*!< Debug RTCP packets to/from this host */
 static int rtpdebugport;		/*!< Debug only RTP packets from IP or IP+Port if port is > 0 */
 static int rtcpdebugport;		/*!< Debug only RTCP packets from IP or IP+Port if port is > 0 */
+
+/* Gogo Modification */
+/* note: 32 is arbitrary, the limitation of number of peers you can override */
+
+struct override_peer {
+	char *peername;
+	int start;
+	int end;
+};
+
+#define MAX_PEER_OVERRIDES	32
+static int override_peer_count = 0;
+static struct override_peer opeers[MAX_PEER_OVERRIDES];
+
+/* End Gogo Modification */
+
 #ifdef SO_NO_CHECK
 static int nochecksums;
 #endif
@@ -600,7 +616,7 @@ struct ast_rtp_rtcp_nack_payload {
 AST_LIST_HEAD_NOLOCK(frame_list, ast_frame);
 
 /* Forward Declarations */
-static int ast_rtp_new(struct ast_rtp_instance *instance, struct ast_sched_context *sched, struct ast_sockaddr *addr, void *data);
+static int ast_rtp_new(struct ast_rtp_instance *instance, struct ast_sched_context *sched, struct ast_sockaddr *addr, void *data, const char *peername);
 static int ast_rtp_destroy(struct ast_rtp_instance *instance);
 static int ast_rtp_dtmf_begin(struct ast_rtp_instance *instance, char digit);
 static int ast_rtp_dtmf_end(struct ast_rtp_instance *instance, char digit);
@@ -3845,9 +3861,13 @@ static int ice_create(struct ast_rtp_instance *instance, struct ast_sockaddr *ad
 }
 #endif
 
-static int rtp_allocate_transport(struct ast_rtp_instance *instance, struct ast_rtp *rtp)
+/*! \pre instance is locked */
+static int ast_rtp_new(struct ast_rtp_instance *instance,
+		       struct ast_sched_context *sched, struct ast_sockaddr *addr,
+		       void *data, const char *peername)
 {
 	int x, startplace;
+	int startport, endport;
 
 	rtp->strict_rtp_state = (strictrtp ? STRICT_RTP_CLOSED : STRICT_RTP_OPEN);
 
@@ -3860,9 +3880,26 @@ static int rtp_allocate_transport(struct ast_rtp_instance *instance, struct ast_
 		return -1;
 	}
 
+
+	/* Gogo Addition - Check if RTP ports were over-ridden */
+	/* rtpstart and rtpend are the default global start and end ports */
+	startport = rtpstart;
+	endport = rtpend;
+	if (peername != NULL && strlen(peername) > 0) {
+		int i;
+		for (i = 0; i < override_peer_count; ++i) {
+			if (strncmp(opeers[i].peername, peername, strlen(opeers[i].peername)) == 0) {
+				ast_debug(1, "\nGogo Edit: RTP Port range is over ridden for peer %s.\n", peername);
+				/* if over-ridden, use start and end which are the specific start and end ports */
+				startport = opeers[i].start;
+				endport = opeers[i].end;
+				break;
+			}
+		}	
+	}
+
 	/* Now actually find a free RTP port to use */
-	x = (rtpend == rtpstart) ? rtpstart : (ast_random() % (rtpend - rtpstart)) + rtpstart;
-	x = x & ~1;
+	x = (endport == startport) ? startport : (ast_random() % (endport - startport)) + startport;	x = x & ~1;
 	startplace = x;
 
 	for (;;) {
@@ -3876,8 +3913,8 @@ static int rtp_allocate_transport(struct ast_rtp_instance *instance, struct ast_
 		}
 
 		x += 2;
-		if (x > rtpend) {
-			x = (rtpstart + 1) & ~1;
+		if (x > endport) {
+			x = (startport + 1) & ~1;
 		}
 
 		/* See if we ran out of ports or if the bind actually failed because of something other than the address being in use */
@@ -9448,7 +9485,9 @@ static int rtp_reload(int reload, int by_external_config)
 {
 	struct ast_config *cfg;
 	const char *s;
-	struct ast_flags config_flags = { (reload && !by_external_config) ? CONFIG_FLAG_FILEUNCHANGED : 0 };
+	struct ast_flags config_flags = { reload ? CONFIG_FLAG_FILEUNCHANGED : 0 };
+	char *cat;
+	int i;
 
 #ifdef HAVE_PJPROJECT
 	struct ast_variable *var;
@@ -9705,6 +9744,38 @@ static int rtp_reload(int reload, int by_external_config)
 	}
 #endif
 
+	/* Gogo modification - RTP port override */
+	for (i = 0; i < override_peer_count; ++i) {
+		ast_free(opeers[i].peername);
+		opeers[i].peername = NULL;
+	}
+	cat = NULL;
+	override_peer_count= 0;
+	while ((cat = ast_category_browse(cfg, cat)) && override_peer_count < MAX_PEER_OVERRIDES) {
+		if (!strcasecmp(cat, "general")) {
+			continue;
+		}
+		int overridestart = DEFAULT_RTP_START;
+		int overrideend = DEFAULT_RTP_END;
+		if ((s = ast_variable_retrieve(cfg, cat, "overridestart"))) {
+			overridestart = atoi(s);
+			if (overridestart < MINIMUM_RTP_PORT)
+				overridestart = MINIMUM_RTP_PORT;
+			if (overridestart > MAXIMUM_RTP_PORT)
+				overridestart = MAXIMUM_RTP_PORT;
+		}
+		if ((s = ast_variable_retrieve(cfg, cat, "overrideend"))) {
+			overrideend = atoi(s);
+			if (overrideend < MINIMUM_RTP_PORT)
+				overrideend = MINIMUM_RTP_PORT;
+			if (overrideend > MAXIMUM_RTP_PORT)
+				overrideend = MAXIMUM_RTP_PORT;
+		}
+		opeers[override_peer_count].peername = ast_strdup(cat);
+		opeers[override_peer_count].start = overridestart;
+		opeers[override_peer_count++].end = overrideend;
+	}
+	/* End Gogo Modification */
 	ast_config_destroy(cfg);
 
 	if (rtpstart >= rtpend) {
