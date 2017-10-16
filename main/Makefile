@@ -73,6 +73,7 @@ else
   endif
 endif
 
+AST_LIBS+=-lpthread -ldl
 ifeq ($(OSARCH),FreeBSD)
   # -V is understood by BSD Make, not by GNU make.
   BSDVERSION=$(shell make -V OSVERSION -f /usr/share/mk/bsd.port.subdir.mk)
