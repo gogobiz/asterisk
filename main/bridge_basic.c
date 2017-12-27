@@ -3201,6 +3201,10 @@ static int grab_transfer(struct ast_channel *chan, char *exten, size_t exten_len
 				ast_log(LOG_NOTICE, "%s Transfer cancelled with * code\n", ast_channel_name(chan));
 				res = -1;
 				break;
+			} else if (ast_app_fail_transferee(chan, exten)) {
+				ast_log(LOG_NOTICE, "%s Transfer failed to invalid extension\n", ast_channel_name(chan));
+				res = -1;
+				break;
 			} else {
 				ast_debug(1, "%s dialed '%s@%s' does not exist.\n",
 					ast_channel_name(chan), exten, context);
