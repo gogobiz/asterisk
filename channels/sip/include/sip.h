@@ -1288,6 +1288,8 @@ struct sip_peer {
 		AST_STRING_FIELD(record_on_feature); /*!< Feature to use when receiving INFO with record: on during a call */
 		AST_STRING_FIELD(record_off_feature); /*!< Feature to use when receiving INFO with record: off during a call */
 		AST_STRING_FIELD(callback); /*!< Callback extension */
+		AST_STRING_FIELD(monitortcptls); /*!< Enable TLS socket monitoring */
+		AST_STRING_FIELD(maxfailedpokes); /*!< Max times to miss pokes while monitoring */
 		);
 	struct sip_socket socket;       /*!< Socket used for this peer */
 	enum ast_transport default_outbound_transport;   /*!< Peer Registration may change the default outbound transport.
@@ -1316,6 +1318,9 @@ struct sip_peer {
 	int maxforwards;                /*!< SIP Loop prevention */
 	enum transfermodes allowtransfer;   /*! SIP Refer restriction scheme */
 	int lastmsgssent;				/*!< The last known VM message counts (new/old) */
+	int monitor_tcptls;		/*!< Whether or not to watch a socket for staleness */
+	int failed_pokes;		/*!< The times a peer poke has failed */
+	int max_failed_pokes;		/*!< The times a peer poke has failed */
 	unsigned int sipoptions;        /*!<  Supported SIP options */
 	struct ast_flags flags[3];      /*!<  SIP_ flags */
 
