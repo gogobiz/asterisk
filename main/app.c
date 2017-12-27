@@ -234,6 +234,45 @@ int ast_app_dtget(struct ast_channel *chan, const char *context, char *collect, 
 	return res;
 }
 
+/* Gogo Edit */
+
+/*!
+ * \brief This function checks the TRANSFEREE_CONTEXT to see if
+ *        this channel is allowed to be transferred to the 
+ *        destination extension
+ * \param chan struct.
+ * \param exten
+ *
+ * \return 0 if extension is present or TRANSFEREE_CONTEXT is absent, 1 if extension is not prosent in TRANSFEREE_CONTEXT
+*/
+int ast_app_fail_transferee(struct ast_channel *chan, const char *exten)
+{
+	/*
+	 * There is a channel variable that can be defined called
+	 * TRANSFEREE CONTEXT that can be allowed to filter where
+	 * calls from a certain context can be transferred to.
+	 */
+	const char *xfer_ctx;
+	xfer_ctx = pbx_builtin_getvar_helper(chan, "TRANSFEREE_CONTEXT");
+
+	/*
+	 * Extension must exist in the TRANSFEREE_CONTEXT if
+	 * TRANSFEREE_CONTEXT exists
+	 */
+	if (!ast_strlen_zero(xfer_ctx) &&
+		!ast_exists_extension(NULL, xfer_ctx, exten, 1, NULL)) {
+		/* Fail the transfer, chan not allowed to call exten */
+		ast_log(LOG_WARNING,
+			"ast_app_fail_transferee: Fail transfer, "
+			"context %s  channel %s exten %s\n",
+			xfer_ctx, ast_channel_name(chan), exten);
+		return 1;
+	}
+	return 0;
+}
+
+/* End Gogo Edit */
+
 /*!
  * \brief ast_app_getdata
  * \param c The channel to read from
