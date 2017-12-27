@@ -1091,7 +1091,10 @@ static uint16_t externtlsport;          /*!< external tls port */
  * AST_SENSE_DENY for 'local' addresses, and AST_SENSE_ALLOW for 'non local'
  * (i.e. presumably public) addresses.
  */
+/* Begin Gogo Edit */
 static struct ast_ha *localaddr;    /*!< List of local networks, on the same side of NAT as this Asterisk */
+static struct ast_ha *remoteaddr;    /*!< List of remote networks, for the case of multiple NAT addresses */
+/* End Gogo Edit */
 
 static int ourport_tcp;             /*!< The port used for TCP connections */
 static int ourport_tls;             /*!< The port used for TCP/TLS connections */
@@ -3877,6 +3880,22 @@ static void ast_sip_ouraddrfor(const struct ast_sockaddr *them, struct ast_socka
 	ast_ouraddrfor(them, us);
 	ast_sockaddr_copy(&theirs, them);
 
+	/* Begin Gogo Edit */
+
+	/*
+	 * In order to handle multiple external NAT addresses, the remotenet
+	 * keyword was added so that any number of NAT addresses where all
+	 * far end endpoints are on the same subnet as the NAT address can
+	 * be added and used. externip should be used for the one allowed
+	 * NAT address that can be routed, meaning that the far ends do not
+	 * have to be on the same subnet as the NAT addresses.
+	 *
+	 * The remotenet subnet takes priority over the localnet subnet
+	 * because in our infinite wisdom, in some configurations using
+	 * third party CMS systems, we have subset subnets
+	 * (cough cough Ovation cough cough).
+	 */
+
 	if (ast_sockaddr_is_ipv6(&theirs) && !ast_sockaddr_is_ipv4_mapped(&theirs)) {
 		if (localaddr && !ast_sockaddr_isnull(&externaddr) && !ast_sockaddr_is_any(&bindaddr)) {
 			ast_log(LOG_WARNING, "Address remapping activated in sip.conf "
@@ -3884,13 +3903,15 @@ static void ast_sip_ouraddrfor(const struct ast_sockaddr *them, struct ast_socka
 				"remove \"localnet\" and/or \"externaddr\" settings.\n");
 		}
 	} else {
-		want_remap = localaddr &&
-			!ast_sockaddr_isnull(&externaddr) &&
-			ast_apply_ha(localaddr, &theirs) == AST_SENSE_ALLOW ;
-	}
+		want_remap = 
+			(localaddr && ast_apply_ha(localaddr, &theirs) == AST_SENSE_ALLOW &&
+				(ast_apply_ha(localaddr, us) == AST_SENSE_DENY || !sip_cfg.matchexternaddrlocally) &&
+				!ast_sockaddr_isnull(&externaddr)) || 
+			(remoteaddr && ast_subnet_member(remoteaddr, &theirs));	}
 
-	if (want_remap &&
-	    (!sip_cfg.matchexternaddrlocally || !ast_apply_ha(localaddr, us)) ) {
+	if (want_remap) {
+		const struct ast_ha *current_ha;
+
 		/* if we used externhost, see if it is time to refresh the info */
 		if (externexpire && time(NULL) >= externexpire) {
 			if (ast_sockaddr_resolve_first_af(&externaddr, externhost, 0, AST_AF_INET)) {
@@ -3898,8 +3919,16 @@ static void ast_sip_ouraddrfor(const struct ast_sockaddr *them, struct ast_socka
 			}
 			externexpire = time(NULL) + externrefresh;
 		}
-		if (!ast_sockaddr_isnull(&externaddr)) {
-			ast_sockaddr_copy(us, &externaddr);
+
+		/* Check if this address is in a remote subnet */
+		if (remoteaddr && (current_ha = ast_subnet_member(remoteaddr, &theirs)) != NULL) {
+			ast_sockaddr_copy(us, &current_ha->addr);
+			ast_sockaddr_set_port(us, ast_sockaddr_port(&theirs));
+			ast_debug(1, "Target address %s is not local, sending from %s\n",
+			  	ast_sockaddr_stringify(them), ast_sockaddr_stringify(us));
+		} else {			ast_sockaddr_copy(us, &externaddr);
+			ast_debug(1, "Target address %s is not local, substituting externaddr\n",
+				ast_sockaddr_stringify(them));
 			switch (p->socket.type) {
 			case AST_TRANSPORT_TCP:
 				if (!externtcpport && ast_sockaddr_port(&externaddr)) {
@@ -3920,8 +3949,7 @@ static void ast_sip_ouraddrfor(const struct ast_sockaddr *them, struct ast_socka
 				break;
 			}
 		}
-		ast_debug(1, "Target address %s is not local, substituting externaddr\n",
-			  ast_sockaddr_stringify(them));
+	/* End Gogo Edit */
 	} else {
 		/* no remapping, but we bind to a specific address, so use it. */
 		switch (p->socket.type) {
@@ -32270,7 +32298,9 @@ static int reload_config(enum channelreloadreason reason)
 
 	/* Free memory for local network address mask */
 	ast_free_ha(localaddr);
+	ast_free_ha(remoteaddr);
 	memset(&localaddr, 0, sizeof(localaddr));
+	memset(&remoteaddr, 0, sizeof(remoteaddr));
 	memset(&externaddr, 0, sizeof(externaddr));
 	memset(&media_address, 0, sizeof(media_address));
 	memset(&sip_cfg.outboundproxy, 0, sizeof(struct sip_proxy));
@@ -32735,6 +32765,20 @@ static int reload_config(enum channelreloadreason reason)
 			if (ha_error) {
 				ast_log(LOG_ERROR, "Bad localnet configuration value line %d : %s\n", v->lineno, v->value);
 			}
+/* Begin Gogo Edit */
+		} else if (!strcasecmp(v->name, "remotenet")) {
+			struct ast_ha *na;
+			int ha_error = 0;
+
+			if (!(na = ast_append_ha_addr("d", v->value, remoteaddr, &ha_error))) {
+				ast_log(LOG_WARNING, "Invalid remotenet value: %s\n", v->value);
+			} else {
+				remoteaddr = na;
+			}
+			if (ha_error) {
+				ast_log(LOG_ERROR, "Bad remotenet configuration value line %d : %s\n", v->lineno, v->value);
+			}
+/* End Gogo Edit */
 		} else if (!strcasecmp(v->name, "media_address")) {
 			if (ast_parse_arg(v->value, PARSE_ADDR, &media_address))
 				ast_log(LOG_WARNING, "Invalid address for media_address keyword: %s\n", v->value);
@@ -35683,6 +35727,7 @@ static int unload_module(void)
 
 	/* Free memory for local network address mask */
 	ast_free_ha(localaddr);
+	ast_free_ha(remoteaddr);
 
 	ast_mutex_lock(&authl_lock);
 	if (authl) {

@@ -113,6 +113,31 @@ struct ast_acl_list *ast_free_acl_list(struct ast_acl_list *acl);
  */
 void ast_copy_ha(const struct ast_ha *from, struct ast_ha *to);
 
+/* Begin Gogo Edit */
+/*!
+ * \brief Add a new rule to a list of HAs
+ *
+ * \details
+ * This adds the new host access rule to the end of the list
+ * whose head is specified by the path parameter. Rules are
+ * evaluated in a way such that if multiple rules apply to
+ * a single IP address/subnet mask, then the rule latest
+ * in the list will be used. This instance save the whole address
+ * not, just the subnet address.
+ *
+ * \param sense Either "permit" or "deny" (Actually any 'p' word will result
+ * in permission, and any other word will result in denial)
+ * \param stuff The IP address and subnet mask, separated with a '/'. The subnet
+ * mask can either be in dotted-decimal format or in CIDR notation (i.e. 0-32).
+ * \param path The head of the HA list to which we wish to append our new rule. 
+ * If NULL is passed, then the new rule will become the head of the list
+ * \param[out] error The integer error points to will be set non-zero if an error occurs
+ * \return The head of the HA list
+ */
+struct ast_ha *ast_append_ha_addr(const char *sense, const char *stuff, struct ast_ha *path, int *error);
+
+/* End Gogo Edit */
+
 /*!
  * \brief Add a new rule to a list of HAs
  *
@@ -176,6 +201,22 @@ void ast_append_acl(const char *sense, const char *stuff, struct ast_acl_list **
  * \retval 1 - the list is empty
  */
 int ast_acl_list_is_empty(struct ast_acl_list *acl_list);
+
+/* Begin Gogo Edit */
+/*!
+ * \brief Find a set of rules for a given IP address
+ *
+ * \details
+ * Find the ha for the subnet that the addr is in, if it exists.
+ *
+ * \param ha The head of the list of host access rules to follow
+ * \param addr An ast_sockaddr whose address is considered when matching rules
+ * \retval AST_SENSE_ALLOW The IP address passes our ACL
+ * \retval AST_SENSE_DENY The IP address fails our ACL
+ */
+const struct ast_ha *ast_subnet_member(const struct ast_ha *ha, const struct ast_sockaddr *addr);
+
+/* End Gogo Edit */
 
 /*!
  * \brief Apply a set of rules to a given IP address
