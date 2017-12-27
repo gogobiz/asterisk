@@ -347,6 +347,57 @@ struct ast_acl_list *ast_duplicate_acl_list(struct ast_acl_list *original)
 	return clone;
 }
 
+/* Begin Gogo Edit */
+
+/* Thank you stackoverflow */
+/* http://stackoverflow.com/questions/14780928/count-number-of-bits-in-an-unsigned-integer */
+static int bit_count(unsigned int n)
+{
+
+	int counter = 0;
+	while(n) {
+		counter ++;
+		n &= (n - 1);
+	}
+	return counter;
+}
+
+/*!
+ * \brief
+ * Determine which netmask is more restrictive (has more bits)
+ *
+ * \param mask1
+ * \param mask2 The netmask configured in the host access rule.
+ * \retval >0  mask1 has more bits than mask2
+ * \retval 0   2 masks have same number of bits
+ * \reval <0   mask2 has more bits than mask1
+ */
+static int netmask_comp(const struct ast_sockaddr *mask1, const struct ast_sockaddr *mask2)
+{
+	int ret = 0;
+
+	if (ast_sockaddr_is_ipv4(mask1) != ast_sockaddr_is_ipv4(mask2)) {
+		return 0;
+	}
+
+	if (ast_sockaddr_is_ipv4(mask1)) {
+		struct sockaddr_in *mask4_1 = (struct sockaddr_in *)&mask1->ss;
+		struct sockaddr_in *mask4_2 = (struct sockaddr_in *)&mask2->ss;
+		ret = bit_count(mask4_1->sin_addr.s_addr) - bit_count(mask4_2->sin_addr.s_addr);
+	} else if (ast_sockaddr_is_ipv6(mask1)) {
+		struct sockaddr_in6 *mask6_1 = (struct sockaddr_in6 *)&mask1->ss;
+		struct sockaddr_in6 *mask6_2 = (struct sockaddr_in6 *)&mask2->ss;
+		int i;
+		for (i = 0; i < 4; ++i) {
+			ret += bit_count(V6_WORD(mask6_1, i));
+			ret -= bit_count(V6_WORD(mask6_2, i));
+		}
+	}
+	return ret;
+}
+
+/* End Gogo Edit */
+
 /*!
  * \brief
  * Parse a netmask in CIDR notation
@@ -538,7 +589,11 @@ int ast_acl_list_is_empty(struct ast_acl_list *acl_list)
 	return 1;
 }
 
-struct ast_ha *ast_append_ha(const char *sense, const char *stuff, struct ast_ha *path, int *error)
+/* Begin Gogo edit */
+/* Need two different types of append. One that preserves the address, and
+ * one that cuts it down to the subnet.
+ */
+static struct ast_ha *ast_append_ha_long(const char *sense, const char *stuff, struct ast_ha *path, int *error, int subnet)
 {
 	struct ast_ha *ha;
 	struct ast_ha *prev = NULL;
@@ -634,7 +689,7 @@ struct ast_ha *ast_append_ha(const char *sense, const char *stuff, struct ast_ha
 			return ret;
 		}
 
-		if (ast_sockaddr_apply_netmask(&ha->addr, &ha->netmask, &ha->addr)) {
+		if (subnet && ast_sockaddr_apply_netmask(&ha->addr, &ha->netmask, &ha->addr)) {
 			/* This shouldn't happen because ast_sockaddr_parse would
 			 * have failed much earlier on an unsupported address scheme
 			 */
@@ -663,6 +718,18 @@ struct ast_ha *ast_append_ha(const char *sense, const char *stuff, struct ast_ha
 
 	return ret;
 }
+
+struct ast_ha *ast_append_ha_addr(const char *sense, const char *stuff, struct ast_ha *path, int *error)
+{
+	return ast_append_ha_long(sense, stuff, path, error, 0);
+}
+
+struct ast_ha *ast_append_ha(const char *sense, const char *stuff, struct ast_ha *path, int *error)
+{
+	return ast_append_ha_long(sense, stuff, path, error, 1);
+}
+
+/* End Gogo edit */
 
 void ast_ha_join(const struct ast_ha *ha, struct ast_str **buf)
 {
@@ -725,14 +792,16 @@ enum ast_acl_sense ast_apply_acl(struct ast_acl_list *acl_list, const struct ast
 	return AST_SENSE_ALLOW;
 }
 
-enum ast_acl_sense ast_apply_ha(const struct ast_ha *ha, const struct ast_sockaddr *addr)
+/* Begin Gogo Edit */
+
+const struct ast_ha *ast_subnet_member(const struct ast_ha *ha, const struct ast_sockaddr *addr)
 {
-	/* Start optimistic */
-	enum ast_acl_sense res = AST_SENSE_ALLOW;
 	const struct ast_ha *current_ha;
+	const struct ast_ha *ret = NULL;
 
 	for (current_ha = ha; current_ha; current_ha = current_ha->next) {
 		struct ast_sockaddr result;
+		struct ast_sockaddr subnet;
 		struct ast_sockaddr mapped_addr;
 		const struct ast_sockaddr *addr_to_use;
 #if 0	/* debugging code */
@@ -776,12 +845,30 @@ enum ast_acl_sense ast_apply_ha(const struct ast_ha *ha, const struct ast_sockad
 			/* Unlikely to happen since we know the address to be IPv4 or IPv6 */
 			continue;
 		}
-		if (!ast_sockaddr_cmp_addr(&result, &current_ha->addr)) {
-			res = current_ha->sense;
+		if (ast_sockaddr_apply_netmask(&current_ha->addr, &current_ha->netmask, &subnet)) {
+			/* Unlikely to happen since we know the address to be IPv4 or IPv6 */
+			continue;
+		}
+		if (!ast_sockaddr_cmp_addr(&result, &subnet)) {
+			/* We want to replace any previous match if the subnet_mask is more restrictive. */
+			if (ret == NULL || netmask_comp(&current_ha->netmask, &ret->netmask) > 0) {
+				ret = current_ha;
+			}
 		}
 	}
-	return res;
+	return ret;
 }
+
+enum ast_acl_sense ast_apply_ha(const struct ast_ha *ha, const struct ast_sockaddr *addr)
+{
+	const struct ast_ha *current_ha = ast_subnet_member(ha, addr);
+	if (current_ha) {
+		return current_ha->sense;
+	}
+	return AST_SENSE_ALLOW;
+}
+  
+/* End Gogo Edit */
 
 static int resolve_first(struct ast_sockaddr *addr, const char *name, int flag,
 			 int family)
