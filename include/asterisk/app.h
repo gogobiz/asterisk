@@ -1386,6 +1386,11 @@ void ast_app_options2str64(const struct ast_app_option *options, struct ast_flag
 \note Note that if 'collect' holds digits already, new digits will be appended, so be sure it's initialized properly */
 int ast_app_dtget(struct ast_channel *chan, const char *context, char *collect, size_t size, int maxlen, int timeout);
 
+/* Gogo Edit */
+/*! \brief Check whether chan can be transferred to exten */
+int ast_app_fail_transferee(struct ast_channel *chan, const char *exten);
+/* End Gogo Edit */
+
 /*! \brief Allow to record message and have a review option */
 int ast_record_review(struct ast_channel *chan, const char *playfile, const char *recordfile, int maxtime, const char *fmt, int *duration, const char *path);
 
