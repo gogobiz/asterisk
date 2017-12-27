@@ -220,6 +220,7 @@ struct ast_tcptls_session_instance {
 	int fd;     /*!< the socket returned by accept() */
 	SSL *ssl;   /*!< ssl state */
 	int client;
+	int stale;
 	struct ast_sockaddr remote_address;
 	struct ast_tcptls_session_args *parent;
 	/* Sometimes, when an entity reads TCP data, multiple

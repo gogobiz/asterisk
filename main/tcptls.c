@@ -1053,6 +1053,7 @@ struct ast_tcptls_session_instance *ast_tcptls_client_create(struct ast_tcptls_s
 
 	tcptls_session->overflow_buf = ast_str_create(128);
 	tcptls_session->client = 1;
+	tcptls_session->stale = 0;
 	tcptls_session->fd = desc->accept_fd;
 	tcptls_session->parent = desc;
 	tcptls_session->parent->worker_fn = NULL;
