@@ -27129,6 +27129,25 @@ static int handle_request_refer(struct sip_pvt *p, struct sip_request *req, uint
 			p->refer->attendedtransfer ? "attended" : "blind",
 			ast_channel_name(transferer));
 	}
+	/* Gogo Edit */
+
+	/*
+	 * Check to see if this transfer has a valid destination
+	 * given the source
+	 */
+	struct ast_chan *bridged_peer = ast_channel_bridge_peer(p->owner);
+	if(ast_app_fail_transferee(bridged_peer, p->refer->refer_to)) {
+		transmit_response(p, "603 Declined (Non transferrable extension)", req);
+		append_history(p, "Xfer", "Refer failed. Non transferrable extension");
+		if (req->debug) {
+			ast_debug(1, "SIP transfer to non transferrable extension denied\n");
+		}
+		ast_channel_unref(bridged_peer);
+		return 0;
+	}
+	ast_channel_unref(bridged_peer);
+
+	/* End Gogo Edit */
 
 	ast_set_flag(&p->flags[0], SIP_GOTREFER);
 
