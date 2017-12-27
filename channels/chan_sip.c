@@ -3039,6 +3039,12 @@ static void *_sip_tcp_helper_thread(struct ast_tcptls_session_instance *tcptls_s
 			timeout = -1;
 		}
 
+		/* Modification to trip SSL only client sockets unreachable and close it */
+		if (tcptls_session->client && tcptls_session->ssl && tcptls_session->stale) {
+			ast_log(LOG_NOTICE, "Found TCP/TLS client with stale socket. Cleaning up socket\n");
+			goto cleanup;
+		}
+
 		if (ast_str_strlen(tcptls_session->overflow_buf) == 0) {
 			res = ast_poll(fds, 2, timeout); /* polls for both socket and alert_pipe */
 			if (res < 0) {
@@ -24573,6 +24579,17 @@ static void handle_response_peerpoke(struct sip_pvt *p, int resp, struct sip_req
 		return;
 	}
 
+	struct sip_socket socket = req->socket;
+
+	if (peer->monitor_tcptls
+	&& (socket.type & (AST_TRANSPORT_TCP |  AST_TRANSPORT_TLS))) {
+		if (peer->failed_pokes > 0 || socket.tcptls_session->stale) {
+			ast_debug(5, "Reset TCP/TLS Socket Monitoring counters and state\n");
+			peer->failed_pokes = 0;
+			socket.tcptls_session->stale = 0;
+		}
+	}
+
 	/* Now determine new state and whether it has changed.
 	 * Use some helper variables to simplify the writing
 	 * of the expressions.
@@ -30136,6 +30153,28 @@ static int sip_poke_noanswer(const void *data)
 		if (sip_cfg.regextenonqualify) {
 			register_peer_exten(peer, FALSE);
 		}
+
+
+	}
+
+	if (peer->monitor_tcptls
+	&& (peer->socket.type & ( AST_TRANSPORT_TCP | AST_TRANSPORT_TLS))) {
+
+		struct ast_sockaddr sa_tmp;
+		struct ast_tcptls_session_instance *tcptls_session;
+
+		// Poke failed...
+		peer->failed_pokes++;
+		ast_debug(5, "Peer TCP/TLS socket monitoring is turned on. Incrementing counter to %d of %d.\n", peer->failed_pokes, peer->max_failed_pokes);
+
+		ast_sockaddr_copy(&sa_tmp, &peer->addr);
+		tcptls_session = sip_tcp_locate(&sa_tmp);
+
+		if(peer->failed_pokes >= peer->max_failed_pokes) {
+			ast_debug(3, "Peer TCP/TLS socket is stale! Marked socket to be killed\n");
+			tcptls_session->stale = 1;
+			peer->failed_pokes = 0;
+		}
 	}
 
 	if (peer->call) {
@@ -31730,6 +31769,17 @@ static struct sip_peer *build_peer(const char *name, struct ast_variable *v_head
 				 * infinitum. */
 				ast_log(LOG_WARNING, "Qualify is incompatible with dynamic uncached realtime.  Please either turn rtcachefriends on or turn qualify off on peer '%s'\n", peer->name);
 				peer->maxms = 0;
+			}
+		} else if (!strcasecmp(v->name, "maxfailedpokes")) {
+			if (sscanf(v->value, "%d", &peer->max_failed_pokes) != 1) {
+				ast_log(LOG_WARNING, "maxfailedpokes of peer '%s' should be a number at line %d of sip.conf\n", peer->name, v->lineno);	
+				peer->max_failed_pokes = 0;
+			}
+		} else if (!strcasecmp(v->name, "monitortcptls")) {
+			if (!strcasecmp(v->value, "yes")) {
+				peer->monitor_tcptls = 1;
+			} else {
+				peer->monitor_tcptls = 0;
 			}
 		} else if (!strcasecmp(v->name, "keepalive")) {
 			if (!strcasecmp(v->value, "no")) {
