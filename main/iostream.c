@@ -18,12 +18,23 @@
 
 #include "asterisk.h"
 
-#include <fcntl.h>
-#include <stdarg.h>
+#include "asterisk/iostream.h"          /* for DO_SSL */
 
-#include "asterisk/utils.h"
-#include "asterisk/astobj2.h"
-#include "asterisk/iostream.h"
+#include <fcntl.h>                      /* for O_NONBLOCK */
+#ifdef DO_SSL
+#include <openssl/err.h>                /* for ERR_error_string */
+#include <openssl/opensslv.h>           /* for OPENSSL_VERSION_NUMBER */
+#include <openssl/ssl.h>                /* for SSL_get_error, SSL_free, SSL_... */
+#endif
+#include <sys/socket.h>                 /* for shutdown, SHUT_RDWR */
+#include <sys/time.h>                   /* for timeval */
+
+#include "asterisk/astobj2.h"           /* for ao2_alloc_options, ao2_alloc_... */
+#include "asterisk/logger.h"            /* for ast_debug, ast_log, LOG_ERROR */
+#include "asterisk/strings.h"           /* for asterisk/threadstorage.h */
+#include "asterisk/threadstorage.h"     /* for ast_threadstorage_get, AST_TH... */
+#include "asterisk/time.h"              /* for ast_remaining_ms, ast_tvnow */
+#include "asterisk/utils.h"             /* for ast_wait_for_input, ast_wait_... */
 
 struct ast_iostream {
 	SSL *ssl;
@@ -197,11 +208,18 @@ static ssize_t iostream_read(struct ast_iostream *stream, void *buf, size_t size
 					}
 				}
 				break;
+			case SSL_ERROR_SYSCALL:
+				/* Some non-recoverable I/O error occurred. The OpenSSL error queue may
+				 * contain more information on the error. For socket I/O on Unix systems,
+				 * consult errno for details. */
+				ast_debug(1, "TLS non-recoverable I/O error occurred: %s, %s\n", ERR_error_string(sslerr, err),
+					ssl_error_to_string(sslerr, res));
+				return -1;
 			default:
 				/* Report EOF for an undecoded SSL or transport error. */
 				ast_debug(1, "TLS transport or SSL error reading data:  %s, %s\n", ERR_error_string(sslerr, err),
 					ssl_error_to_string(sslerr, res));
-				return 0;
+				return -1;
 			}
 			if (!ms) {
 				/* Report EOF for a timeout */
@@ -267,46 +285,59 @@ ssize_t ast_iostream_read(struct ast_iostream *stream, void *buffer, size_t coun
 
 ssize_t ast_iostream_gets(struct ast_iostream *stream, char *buffer, size_t size)
 {
-	ssize_t r;
+	size_t remaining = size;
+	ssize_t accum_size = 0;
+	ssize_t len;
 	char *newline;
 
-	do {
+	for (;;) {
 		/* Search for newline */
 		newline = memchr(stream->rbufhead, '\n', stream->rbuflen);
 		if (newline) {
-			r = newline - stream->rbufhead + 1;
-			if (r > size-1) {
-				r = size-1;
+			len = newline - stream->rbufhead + 1;
+			if (len > remaining - 1) {
+				len = remaining - 1;
 			}
 			break;
 		}
 
-		/* Enough data? */
-		if (stream->rbuflen >= size - 1) {
-			r = size - 1;
+		/* Enough buffered line data to fill request buffer? */
+		if (stream->rbuflen >= remaining - 1) {
+			len = remaining - 1;
 			break;
 		}
-
-		/* Try to fill in line buffer */
-		if (stream->rbuflen && stream->rbuf != stream->rbufhead) {
-			memmove(&stream->rbuf, stream->rbufhead, stream->rbuflen);
+		if (stream->rbuflen) {
+			/* Put leftover buffered line data into request buffer */
+			memcpy(buffer + accum_size, stream->rbufhead, stream->rbuflen);
+			remaining -= stream->rbuflen;
+			accum_size += stream->rbuflen;
+			stream->rbuflen = 0;
 		}
 		stream->rbufhead = stream->rbuf;
 
-		r = iostream_read(stream, stream->rbufhead + stream->rbuflen, sizeof(stream->rbuf) - stream->rbuflen);
-		if (r <= 0) {
-			return r;
+		len = iostream_read(stream, stream->rbuf, sizeof(stream->rbuf));
+		if (len == 0) {
+			/* Nothing new was read.  Return whatever we have accumulated. */
+			break;
 		}
-		stream->rbuflen += r;
-	} while (1);
+		if (len < 0) {
+			if (accum_size) {
+				/* We have an accumulated buffer so return that instead. */
+				len = 0;
+				break;
+			}
+			return len;
+		}
+		stream->rbuflen += len;
+	}
 
-	/* Return r bytes with termination byte */
-	memcpy(buffer, stream->rbufhead, r);
-	buffer[r] = 0;
-	stream->rbuflen -= r;
-	stream->rbufhead += r;
+	/* Return read buffer string length */
+	memcpy(buffer + accum_size, stream->rbufhead, len);
+	buffer[accum_size + len] = 0;
+	stream->rbuflen -= len;
+	stream->rbufhead += len;
 
-	return r;
+	return accum_size + len;
 }
 
 ssize_t ast_iostream_discard(struct ast_iostream *stream, size_t size)
@@ -317,7 +348,7 @@ ssize_t ast_iostream_discard(struct ast_iostream *stream, size_t size)
 
 	while (remaining) {
 		ret = ast_iostream_read(stream, buf, remaining > sizeof(buf) ? sizeof(buf) : remaining);
-		if (ret < 0) {
+		if (ret <= 0) {
 			return ret;
 		}
 		remaining -= ret;
@@ -508,19 +539,19 @@ int ast_iostream_close(struct ast_iostream *stream)
 					ERR_error_string(sslerr, err), ssl_error_to_string(sslerr, res));
 			}
 
-#if defined(OPENSSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(LIBRESSL_VERSION_NUMBER)
+#if !defined(LIBRESSL_VERSION_NUMBER) && (OPENSSL_VERSION_NUMBER >= 0x10100000L)
 			if (!SSL_is_server(stream->ssl)) {
 #else
 			if (!stream->ssl->server) {
 #endif
 				/* For client threads, ensure that the error stack is cleared */
-#if !defined(OPENSSL_VERSION_NUMBER) || OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
+#if defined(LIBRESSL_VERSION_NUMBER) || (OPENSSL_VERSION_NUMBER < 0x10100000L)
 #if OPENSSL_VERSION_NUMBER >= 0x10000000L
 				ERR_remove_thread_state(NULL);
 #else
 				ERR_remove_state(0);
 #endif	/* OPENSSL_VERSION_NUMBER >= 0x10000000L */
-#endif  /* !defined(OPENSSL_VERSION_NUMBER) || OPENSSL_VERSION_NUMBER < 0x10100000L */
+#endif  /* OPENSSL_VERSION_NUMBER  < 0x10100000L */
 			}
 
 			SSL_free(stream->ssl);

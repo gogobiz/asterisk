@@ -24,6 +24,7 @@
 #include <pjsip_simple.h>
 #include <pjsip/sip_transaction.h>
 #include <pj/timer.h>
+/* Needed for pj_sockaddr */
 #include <pjlib.h>
 
 #include "asterisk/stringfields.h"
@@ -41,8 +42,6 @@
 #include "asterisk/endpoints.h"
 /* Needed for ast_t38_ec_modes */
 #include "asterisk/udptl.h"
-/* Needed for pj_sockaddr */
-#include <pjlib.h>
 /* Needed for ast_rtp_dtls_cfg struct */
 #include "asterisk/rtp_engine.h"
 /* Needed for AST_VECTOR macro */
@@ -133,7 +132,7 @@ struct ast_sip_transport_state {
 #define ast_sip_transport_is_local(transport_state, addr) \
 	(transport_state->localnet && ast_apply_ha(transport_state->localnet, addr) != AST_SENSE_ALLOW)
 
-/*
+/*!
  * \brief Transport to bind to
  */
 struct ast_sip_transport {
@@ -353,7 +352,7 @@ struct ast_sip_aor {
 	unsigned int support_path;
 	/*! Qualify timeout. 0 is diabled. */
 	double qualify_timeout;
-	/* Voicemail extension to set in Message-Account */
+	/*! Voicemail extension to set in Message-Account */
 	char *voicemail_extension;
 };
 
@@ -516,11 +515,11 @@ struct ast_sip_mwi_configuration {
 		/*! Username to use when sending MWI NOTIFYs to this endpoint */
 		AST_STRING_FIELD(fromuser);
 	);
-	/* Should mailbox states be combined into a single notification? */
+	/*! Should mailbox states be combined into a single notification? */
 	unsigned int aggregate;
-	/* Should a subscribe replace unsolicited notifies? */
+	/*! Should a subscribe replace unsolicited notifies? */
 	unsigned int subscribe_replaces_unsolicited;
-	/* Voicemail extension to set in Message-Account */
+	/*! Voicemail extension to set in Message-Account */
 	char *voicemail_extension;
 };
 
@@ -534,7 +533,7 @@ struct ast_sip_endpoint_subscription_configuration {
 	unsigned int minexpiry;
 	/*! Message waiting configuration */
 	struct ast_sip_mwi_configuration mwi;
-	/* Context for SUBSCRIBE requests */
+	/*! Context for SUBSCRIBE requests */
 	char context[AST_MAX_CONTEXT];
 };
 
@@ -643,6 +642,10 @@ struct ast_sip_media_rtp_configuration {
 	unsigned int timeout;
 	/*! Number of seconds before terminating channel due to lack of RTP (when on hold) */
 	unsigned int timeout_hold;
+	/*! Follow forked media with a different To tag */
+	unsigned int follow_early_media_fork;
+	/*! Accept updated SDPs on non-100rel 18X and 2XX responses with the same To tag */
+	unsigned int accept_multiple_sdp_answers;
 };
 
 /*!
@@ -809,6 +812,8 @@ struct ast_sip_endpoint {
 	unsigned int refer_blind_progress;
 	/*! Whether to notifies dialog-info 'early' on INUSE && RINGING state */
 	unsigned int notify_early_inuse_ringing;
+	/*! Suppress Q.850 Reason headers on this endpoint */
+	unsigned int suppress_q850_reason_headers;
 };
 
 /*! URI parameter for symmetric transport */
@@ -2885,7 +2890,7 @@ const char *ast_sip_get_contact_short_status_label(const enum ast_sip_contact_st
  */
 int ast_sip_failover_request(pjsip_tx_data *tdata);
 
-/*
+/*!
  * \brief Retrieve the local host address in IP form
  *
  * \param af The address family to retrieve

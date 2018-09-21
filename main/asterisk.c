@@ -294,9 +294,12 @@ int daemon(int, int);  /* defined in libresolv of all places */
 #define AST_MAX_CONNECTS 128
 #define NUM_MSGS 64
 
+/*! Displayed copyright tag */
+#define COPYRIGHT_TAG "Copyright (C) 1999 - 2018, Digium, Inc. and others."
+
 /*! \brief Welcome message when starting a CLI interface */
 #define WELCOME_MESSAGE \
-    ast_verbose("Asterisk %s, Copyright (C) 1999 - 2018, Digium, Inc. and others.\n" \
+    ast_verbose("Asterisk %s, " COPYRIGHT_TAG "\n" \
                 "Created by Mark Spencer <markster@digium.com>\n" \
                 "Asterisk comes with ABSOLUTELY NO WARRANTY; type 'core show warranty' for details.\n" \
                 "This is free software, with components licensed under the GNU General Public\n" \
@@ -3285,7 +3288,7 @@ static int show_version(void)
 
 static int show_cli_help(void)
 {
-	printf("Asterisk %s, Copyright (C) 1999 - 2016, Digium, Inc. and others.\n", ast_get_version());
+	printf("Asterisk %s, " COPYRIGHT_TAG "\n", ast_get_version());
 	printf("Usage: asterisk [OPTIONS]\n");
 	printf("Valid Options:\n");
 	printf("   -V              Display version number and exit\n");
@@ -3961,9 +3964,7 @@ static void asterisk_daemon(int isroot, const char *runuser, const char *rungrou
 	 * an Asterisk instance, and that there isn't one already running. */
 	multi_thread_safe = 1;
 
-#if defined(__AST_DEBUG_MALLOC)
-	__ast_mm_init_phase_1();
-#endif	/* defined(__AST_DEBUG_MALLOC) */
+	load_astmm_phase_1();
 
 	/* Check whether high prio was succesfully set by us or some
 	 * other incantation. */
@@ -4139,10 +4140,7 @@ static void asterisk_daemon(int isroot, const char *runuser, const char *rungrou
 	check_init(ast_local_init(), "Local Proxy Channel Driver");
 
 	/* We should avoid most config loads before this point as they can't use realtime. */
-	check_init(load_modules(1), "Module Preload");
-
-	/* Load remaining modules */
-	check_init(load_modules(0), "Module");
+	check_init(load_modules(), "Module");
 
 	/*
 	 * This has to load after the dynamic modules load, as items in the media
@@ -4171,9 +4169,7 @@ static void asterisk_daemon(int isroot, const char *runuser, const char *rungrou
 
 	pthread_sigmask(SIG_UNBLOCK, &sigs, NULL);
 
-#if defined(__AST_DEBUG_MALLOC)
-	__ast_mm_init_phase_2();
-#endif	/* defined(__AST_DEBUG_MALLOC) */
+	load_astmm_phase_2();
 
 	ast_cli_register_multiple(cli_asterisk_shutdown, ARRAY_LEN(cli_asterisk_shutdown));
 	ast_cli_register_multiple(cli_asterisk, ARRAY_LEN(cli_asterisk));

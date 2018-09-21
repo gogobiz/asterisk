@@ -1825,7 +1825,7 @@ int ast_res_pjsip_initialize_configuration(void)
 	ast_sorcery_object_field_register(sip_sorcery, "endpoint", "mailboxes", "", OPT_STRINGFIELD_T, 0, STRFLDSET(struct ast_sip_endpoint, subscription.mwi.mailboxes));
 	ast_sorcery_object_field_register_custom(sip_sorcery, "endpoint", "voicemail_extension", "", voicemail_extension_handler, voicemail_extension_to_str, NULL, 0, 0);
 	ast_sorcery_object_field_register(sip_sorcery, "endpoint", "aggregate_mwi", "yes", OPT_BOOL_T, 1, FLDSET(struct ast_sip_endpoint, subscription.mwi.aggregate));
-	ast_sorcery_object_field_register(sip_sorcery, "endpoint", "mwi_subscribe_replaces_unsolicited", "no", OPT_BOOL_T, 1, FLDSET(struct ast_sip_endpoint, subscription.mwi.subscribe_replaces_unsolicited));
+	ast_sorcery_object_field_register(sip_sorcery, "endpoint", "mwi_subscribe_replaces_unsolicited", "no", OPT_YESNO_T, 1, FLDSET(struct ast_sip_endpoint, subscription.mwi.subscribe_replaces_unsolicited));
 	ast_sorcery_object_field_register_custom(sip_sorcery, "endpoint", "media_encryption", "no", media_encryption_handler, media_encryption_to_str, NULL, 0, 0);
 	ast_sorcery_object_field_register(sip_sorcery, "endpoint", "use_avpf", "no", OPT_BOOL_T, 1, FLDSET(struct ast_sip_endpoint, media.rtp.use_avpf));
 	ast_sorcery_object_field_register(sip_sorcery, "endpoint", "force_avp", "no", OPT_BOOL_T, 1, FLDSET(struct ast_sip_endpoint, media.rtp.force_avp));
@@ -1902,6 +1902,9 @@ int ast_res_pjsip_initialize_configuration(void)
 	ast_sorcery_object_field_register(sip_sorcery, "endpoint", "bundle", "no", OPT_BOOL_T, 1, FLDSET(struct ast_sip_endpoint, media.bundle));
 	ast_sorcery_object_field_register(sip_sorcery, "endpoint", "webrtc", "no", OPT_YESNO_T, 1, FLDSET(struct ast_sip_endpoint, media.webrtc));
 	ast_sorcery_object_field_register(sip_sorcery, "endpoint", "incoming_mwi_mailbox", "", OPT_STRINGFIELD_T, 0, STRFLDSET(struct ast_sip_endpoint, incoming_mwi_mailbox));
+	ast_sorcery_object_field_register(sip_sorcery, "endpoint", "follow_early_media_fork", "yes", OPT_BOOL_T, 1, FLDSET(struct ast_sip_endpoint, media.rtp.follow_early_media_fork));
+	ast_sorcery_object_field_register(sip_sorcery, "endpoint", "accept_multiple_sdp_answers", "no", OPT_BOOL_T, 1, FLDSET(struct ast_sip_endpoint, media.rtp.accept_multiple_sdp_answers));
+	ast_sorcery_object_field_register(sip_sorcery, "endpoint", "suppress_q850_reason_headers", "no", OPT_BOOL_T, 1, FLDSET(struct ast_sip_endpoint, suppress_q850_reason_headers));
 
 	if (ast_sip_initialize_sorcery_transport()) {
 		ast_log(LOG_ERROR, "Failed to register SIP transport support with sorcery\n");

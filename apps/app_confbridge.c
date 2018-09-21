@@ -71,6 +71,8 @@
 #include "asterisk/json.h"
 #include "asterisk/format_cache.h"
 #include "asterisk/taskprocessor.h"
+#include "asterisk/stream.h"
+#include "asterisk/message.h"
 
 /*** DOCUMENTATION
 	<application name="ConfBridge" language="en_US">
@@ -271,6 +273,13 @@
 				</parameter>
 				<parameter name="Muted">
 					<para>The current mute status.</para>
+					<enumlist>
+						<enum name="Yes"/>
+						<enum name="No"/>
+					</enumlist>
+				</parameter>
+				<parameter name="Talking">
+					<para>Is this user talking?</para>
 					<enumlist>
 						<enum name="Yes"/>
 						<enum name="No"/>
@@ -540,6 +549,7 @@ const char *conf_get_sound(enum conf_sounds sound, struct bridge_profile_sounds 
 	return "";
 }
 
+
 static void send_conf_stasis(struct confbridge_conference *conference, struct ast_channel *chan,
 	struct stasis_message_type *type, struct ast_json *extras, int channel_topic)
 {
@@ -699,6 +709,11 @@ static int is_new_rec_file(const char *rec_file, struct ast_str **orig_rec_file)
 		}
 	}
 	return 0;
+}
+
+struct confbridge_conference *conf_find_bridge(const char *conference_name)
+{
+	return ao2_find(conference_bridges, conference_name, OBJ_KEY);
 }
 
 /*!
@@ -1442,25 +1457,19 @@ static int alloc_playback_chan(struct confbridge_conference *conference)
 /*!
  * \brief Push the announcer channel into the bridge
  *
- * This runs in the playback queue taskprocessor.
- *
- * \param data A confbridge_conference
+ * \param conference Conference bridge to push the announcer to
  * \retval 0 Success
  * \retval -1 Failed to push the channel to the bridge
  */
-static int push_announcer(void *data)
+static int push_announcer(struct confbridge_conference *conference)
 {
-	struct confbridge_conference *conference = data;
-
 	if (conf_announce_channel_push(conference->playback_chan)) {
 		ast_hangup(conference->playback_chan);
 		conference->playback_chan = NULL;
-		ao2_cleanup(conference);
 		return -1;
 	}
 
 	ast_autoservice_start(conference->playback_chan);
-	ao2_cleanup(conference);
 	return 0;
 }
 
@@ -1573,7 +1582,7 @@ static struct confbridge_conference *join_conference_bridge(const char *conferen
 			return NULL;
 		}
 
-		if (ast_taskprocessor_push(conference->playback_queue, push_announcer, ao2_bump(conference))) {
+		if (push_announcer(conference)) {
 			ao2_unlink(conference_bridges, conference);
 			ao2_ref(conference, -1);
 			ao2_unlock(conference_bridges);
@@ -2102,7 +2111,7 @@ static int play_sound_number(struct confbridge_conference *conference, int say_n
 
 static int conf_handle_talker_cb(struct ast_bridge_channel *bridge_channel, void *hook_pvt, int talking)
 {
-	const struct confbridge_user *user = hook_pvt;
+	struct confbridge_user *user = hook_pvt;
 	RAII_VAR(struct confbridge_conference *, conference, NULL, ao2_cleanup);
 	struct ast_json *talking_extras;
 
@@ -2111,6 +2120,10 @@ static int conf_handle_talker_cb(struct ast_bridge_channel *bridge_channel, void
 		/* Remove the hook since the conference does not exist. */
 		return -1;
 	}
+
+	ao2_lock(conference);
+	user->talking = talking;
+	ao2_unlock(conference);
 
 	talking_extras = ast_json_pack("{s: s, s: b}",
 		"talking_status", talking ? "on" : "off",
@@ -3562,6 +3575,7 @@ static int action_confbridgelist_item(struct mansession *s, const char *id_text,
 		"EndMarked: %s\r\n"
 		"Waiting: %s\r\n"
 		"Muted: %s\r\n"
+		"Talking: %s\r\n"
 		"AnsweredTime: %d\r\n"
 		"%s"
 		"\r\n",
@@ -3573,6 +3587,7 @@ static int action_confbridgelist_item(struct mansession *s, const char *id_text,
 		AST_YESNO(ast_test_flag(&user->u_profile, USER_OPT_ENDMARKED)),
 		AST_YESNO(waiting),
 		AST_YESNO(user->muted),
+		AST_YESNO(user->talking),
 		ast_channel_get_up_time(user->chan),
 		ast_str_buffer(snap_str));
 

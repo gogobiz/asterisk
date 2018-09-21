@@ -250,7 +250,10 @@ struct ast_sip_session_media_state *ast_sip_session_media_state_clone(const stru
 		struct ast_sip_session_media *session_media = AST_VECTOR_GET(&media_state->sessions, index);
 		enum ast_media_type type = ast_stream_get_type(ast_stream_topology_get_stream(cloned->topology, index));
 
-		AST_VECTOR_REPLACE(&cloned->sessions, index, ao2_bump(session_media));
+		ao2_bump(session_media);
+		if (AST_VECTOR_REPLACE(&cloned->sessions, index, session_media)) {
+			ao2_cleanup(session_media);
+		}
 		if (ast_stream_get_state(ast_stream_topology_get_stream(cloned->topology, index)) != AST_STREAM_STATE_REMOVED &&
 			!cloned->default_session[type]) {
 			cloned->default_session[type] = session_media;
@@ -441,6 +444,8 @@ struct ast_sip_session_media *ast_sip_session_media_state_add(struct ast_sip_ses
 		}
 
 		session_media->encryption = session->endpoint->media.rtp.encryption;
+		session_media->remote_ice = session->endpoint->media.rtp.ice_support;
+		session_media->remote_rtcp_mux = session->endpoint->media.rtcp_mux;
 		session_media->keepalive_sched_id = -1;
 		session_media->timeout_sched_id = -1;
 		session_media->type = type;
@@ -926,10 +931,18 @@ static int handle_negotiated_sdp(struct ast_sip_session *session, const pjmedia_
 		session_media = AST_VECTOR_GET(&session->pending_media_state->sessions, i);
 		stream = ast_stream_topology_get_stream(session->pending_media_state->topology, i);
 
-		/* The stream state will have already been set to removed when either we
-		 * negotiate the incoming SDP stream or when we produce our own local SDP.
-		 * This can occur if an internal thing has requested it to be removed, or if
-		 * we remove it as a result of the stream limit being reached.
+		/* Make sure that this stream is in the correct state. If we need to change
+		 * the state to REMOVED, then our work here is done, so go ahead and move on
+		 * to the next stream.
+		 */
+		if (!remote->media[i]->desc.port) {
+			ast_stream_set_state(stream, AST_STREAM_STATE_REMOVED);
+			continue;
+		}
+
+		/* If the stream state is REMOVED, nothing needs to be done, so move on to the
+		 * next stream. This can occur if an internal thing has requested it to be
+		 * removed, or if we remove it as a result of the stream limit being reached.
 		 */
 		if (ast_stream_get_state(stream) == AST_STREAM_STATE_REMOVED) {
 			/*
@@ -1559,6 +1572,11 @@ int ast_sip_session_refresh(struct ast_sip_session *session,
 
 				/* No need to do anything with stream if it's media state is removed */
 				if (ast_stream_get_state(stream) == AST_STREAM_STATE_REMOVED) {
+					/* If there is no existing stream we can just not have this stream in the topology at all. */
+					if (!existing_stream) {
+						ast_stream_topology_del_stream(media_state->topology, index);
+						index -= 1;
+					}
 					continue;
 				}
 
@@ -2918,6 +2936,7 @@ static int new_invite(struct new_invite *invite)
 	pjsip_timer_setting timer;
 	pjsip_rdata_sdp_info *sdp_info;
 	pjmedia_sdp_session *local = NULL;
+	char buffer[AST_SOCKADDR_BUFLEN];
 
 	/* From this point on, any calls to pjsip_inv_terminate have the last argument as PJ_TRUE
 	 * so that we will be notified so we can destroy the session properly
@@ -2945,8 +2964,11 @@ static int new_invite(struct new_invite *invite)
 		}
 		goto end;
 	case SIP_GET_DEST_EXTEN_PARTIAL:
-		ast_debug(1, "Call from '%s' (%s:%s:%d) to extension '%s' - partial match\n", ast_sorcery_object_get_id(invite->session->endpoint),
-			invite->rdata->tp_info.transport->type_name, invite->rdata->pkt_info.src_name, invite->rdata->pkt_info.src_port, invite->session->exten);
+		ast_debug(1, "Call from '%s' (%s:%s) to extension '%s' - partial match\n",
+			ast_sorcery_object_get_id(invite->session->endpoint),
+			invite->rdata->tp_info.transport->type_name,
+			pj_sockaddr_print(&invite->rdata->pkt_info.src_addr, buffer, sizeof(buffer), 3),
+			invite->session->exten);
 
 		if (pjsip_inv_initial_answer(invite->session->inv_session, invite->rdata, 484, NULL, NULL, &tdata) == PJ_SUCCESS) {
 			ast_sip_session_send_response(invite->session, tdata);
@@ -2956,9 +2978,12 @@ static int new_invite(struct new_invite *invite)
 		goto end;
 	case SIP_GET_DEST_EXTEN_NOT_FOUND:
 	default:
-		ast_log(LOG_NOTICE, "Call from '%s' (%s:%s:%d) to extension '%s' rejected because extension not found in context '%s'.\n",
-			ast_sorcery_object_get_id(invite->session->endpoint), invite->rdata->tp_info.transport->type_name, invite->rdata->pkt_info.src_name,
-			invite->rdata->pkt_info.src_port, invite->session->exten, invite->session->endpoint->context);
+		ast_log(LOG_NOTICE, "Call from '%s' (%s:%s) to extension '%s' rejected because extension not found in context '%s'.\n",
+			ast_sorcery_object_get_id(invite->session->endpoint),
+			invite->rdata->tp_info.transport->type_name,
+			pj_sockaddr_print(&invite->rdata->pkt_info.src_addr, buffer, sizeof(buffer), 3),
+			invite->session->exten,
+			invite->session->endpoint->context);
 
 		if (pjsip_inv_initial_answer(invite->session->inv_session, invite->rdata, 404, NULL, NULL, &tdata) == PJ_SUCCESS) {
 			ast_sip_session_send_response(invite->session, tdata);
@@ -3843,14 +3868,14 @@ static int add_bundle_groups(struct ast_sip_session *session, pj_pool_t *pool, p
 				continue;
 			}
 
-			ast_str_set(&bundle_group->attr_string, -1, "BUNDLE %s", session_media->mid);
+			ast_str_set(&bundle_group->attr_string, 0, "BUNDLE %s", session_media->mid);
 			continue;
 		}
 
 		for (mid_id = 1; mid_id < PJMEDIA_MAX_SDP_MEDIA; ++mid_id) {
 			if (!bundle_group->mids[mid_id]) {
 				bundle_group->mids[mid_id] = session_media->mid;
-				ast_str_append(&bundle_group->attr_string, -1, " %s", session_media->mid);
+				ast_str_append(&bundle_group->attr_string, 0, " %s", session_media->mid);
 				break;
 			} else if (!strcmp(bundle_group->mids[mid_id], session_media->mid)) {
 				break;
@@ -4048,6 +4073,42 @@ static void session_inv_on_media_update(pjsip_inv_session *inv, pj_status_t stat
 		 * Just ignore
 		 */
 		return;
+	}
+
+	if (session->endpoint) {
+		int bail = 0;
+
+		/*
+		 * If following_fork is set, then this is probably the result of a
+		 * forked INVITE and SDP asnwers coming from the different fork UAS
+		 * destinations.  In this case updated_sdp_answer will also be set.
+		 *
+		 * If only updated_sdp_answer is set, then this is the non-forking
+		 * scenario where the same UAS just needs to change something like
+		 * the media port.
+		 */
+
+		if (inv->following_fork) {
+			if (session->endpoint->media.rtp.follow_early_media_fork) {
+				ast_debug(3, "Following early media fork with different To tags\n");
+			} else {
+				ast_debug(3, "Not following early media fork with different To tags\n");
+				bail = 1;
+			}
+		}
+#ifdef HAVE_PJSIP_INV_ACCEPT_MULTIPLE_SDP_ANSWERS
+		else if (inv->updated_sdp_answer) {
+			if (session->endpoint->media.rtp.accept_multiple_sdp_answers) {
+				ast_debug(3, "Accepting updated SDP with same To tag\n");
+			} else {
+				ast_debug(3, "Ignoring updated SDP answer with same To tag\n");
+				bail = 1;
+			}
+		}
+#endif
+		if (bail) {
+			return;
+		}
 	}
 
 	if ((status != PJ_SUCCESS) || (pjmedia_sdp_neg_get_active_local(inv->neg, &local) != PJ_SUCCESS) ||

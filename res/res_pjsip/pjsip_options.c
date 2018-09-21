@@ -565,6 +565,7 @@ static enum ast_endpoint_state sip_options_get_endpoint_state_compositor_state(
 	for (; (aor_status = ao2_iterator_next(&it_aor_statuses)); ao2_ref(aor_status, -1)) {
 		if (aor_status->available) {
 			state = AST_ENDPOINT_ONLINE;
+			ao2_ref(aor_status, -1);
 			break;
 		}
 	}
@@ -1530,10 +1531,11 @@ static int sip_options_endpoint_compositor_add_task(void *obj)
 	ast_debug(3, "Adding endpoint compositor '%s' to AOR '%s'\n",
 		task_data->endpoint_state_compositor->name, task_data->aor_options->name);
 
+	ao2_ref(task_data->endpoint_state_compositor, +1);
 	if (AST_VECTOR_APPEND(&task_data->aor_options->compositors,
-		ao2_bump(task_data->endpoint_state_compositor))) {
+		task_data->endpoint_state_compositor)) {
 		/* Failed to add so no need to update the endpoint status.  Nothing changed. */
-		ao2_cleanup(task_data->endpoint_state_compositor);
+		ao2_ref(task_data->endpoint_state_compositor, -1);
 		return 0;
 	}
 
@@ -2059,6 +2061,29 @@ struct sip_options_contact_observer_task_data {
 	struct ast_sip_contact *contact;
 };
 
+
+/*!
+ * \brief Check if the contact qualify options are different than local aor qualify options
+ */
+static int has_qualify_changed (const struct ast_sip_contact *contact, const struct sip_options_aor *aor_options)
+{
+	if (!contact) {
+	    return 0;
+	}
+
+	if (!aor_options) {
+		if (contact->qualify_frequency) {
+			return 1;
+		}
+	} else if (contact->qualify_frequency != aor_options->qualify_frequency
+		|| contact->authenticate_qualify != aor_options->authenticate_qualify
+		|| ((int)(contact->qualify_timeout * 1000)) != ((int)(aor_options->qualify_timeout * 1000))) {
+		return 1;
+	}
+
+	return 0;
+}
+
 /*!
  * \brief Task which adds a dynamic contact to an AOR
  * \note Run by aor_options->serializer
@@ -2129,23 +2154,21 @@ static int sip_options_contact_add_management_task(void *obj)
 	task_data.contact = obj;
 	task_data.aor_options = ao2_find(sip_options_aors, task_data.contact->aor,
 		OBJ_SEARCH_KEY);
-	if (!task_data.aor_options) {
+
+	if (has_qualify_changed(task_data.contact, task_data.aor_options)) {
 		struct ast_sip_aor *aor;
 
-		/*
-		 * The only reason this would occur is if the AOR was sourced
-		 * after the last reload happened.  To handle this we fetch the
-		 * AOR and treat it as if we received notification that it had
-		 * been created.  This will create the needed AOR feeder
-		 * compositor and will cause any associated contact statuses and
-		 * endpoint state compositors to also get created if needed.
-		 */
 		aor = ast_sorcery_retrieve_by_id(ast_sip_get_sorcery(), "aor",
 			task_data.contact->aor);
 		if (aor) {
+			ast_debug(3, "AOR '%s' qualify options have been modified. Synchronize an AOR local state\n",
+				task_data.contact->aor);
 			sip_options_aor_observer_modified_task(aor);
 			ao2_ref(aor, -1);
 		}
+	}
+
+	if (!task_data.aor_options) {
 		return 0;
 	}
 
@@ -2163,62 +2186,27 @@ static void contact_observer_created(const void *obj)
 		sip_options_contact_add_management_task, (void *) obj);
 }
 
-/*!
- * \brief Task which updates a dynamic contact to an AOR
- * \note Run by aor_options->serializer
- */
-static int sip_options_contact_update_task(void *obj)
-{
-	struct sip_options_contact_observer_task_data *task_data = obj;
-	struct ast_sip_contact_status *contact_status;
-
-	contact_status = ast_sip_get_contact_status(task_data->contact);
-	if (contact_status) {
-		switch (contact_status->status) {
-		case CREATED:
-		case UNAVAILABLE:
-		case AVAILABLE:
-		case UNKNOWN:
-			/* Refresh the ContactStatus AMI events. */
-			sip_options_contact_status_update(contact_status);
-			break;
-		case REMOVED:
-			break;
-		}
-		ao2_ref(contact_status, -1);
-	}
-
-	ao2_ref(task_data->contact, -1);
-	ao2_ref(task_data->aor_options, -1);
-	ast_free(task_data);
-	return 0;
-}
-
 /*! \brief Observer callback invoked on contact update */
 static void contact_observer_updated(const void *obj)
 {
-	struct sip_options_contact_observer_task_data *task_data;
+	const struct ast_sip_contact *contact = obj;
+	struct sip_options_aor *aor_options = ao2_find(sip_options_aors, contact->aor, OBJ_SEARCH_KEY);
 
-	task_data = ast_malloc(sizeof(*task_data));
-	if (!task_data) {
-		return;
+	if (has_qualify_changed(contact, aor_options)) {
+		struct ast_sip_aor *aor;
+
+		aor = ast_sorcery_retrieve_by_id(ast_sip_get_sorcery(), "aor",
+			contact->aor);
+		if (aor) {
+			ast_debug(3, "AOR '%s' qualify options have been modified. Synchronize an AOR local state\n",
+				contact->aor);
+			ast_sip_push_task_wait_serializer(management_serializer,
+				sip_options_aor_observer_modified_task, aor);
+			ao2_ref(aor, -1);
+		}
 	}
 
-	task_data->contact = (struct ast_sip_contact *) obj;
-	task_data->aor_options = ao2_find(sip_options_aors, task_data->contact->aor,
-		OBJ_SEARCH_KEY);
-	if (!task_data->aor_options) {
-		ast_free(task_data);
-		return;
-	}
-
-	ao2_ref(task_data->contact, +1);
-	if (ast_sip_push_task(task_data->aor_options->serializer,
-		sip_options_contact_update_task, task_data)) {
-		ao2_ref(task_data->contact, -1);
-		ao2_ref(task_data->aor_options, -1);
-		ast_free(task_data);
-	}
+	ao2_cleanup(aor_options);
 }
 
 /*!
@@ -2435,6 +2423,189 @@ static int ami_show_contacts(struct mansession *s, const struct message *m)
 	return 0;
 }
 
+static char *cli_show_qualify_endpoint(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
+{
+	RAII_VAR(struct ast_sip_endpoint *, endpoint, NULL, ao2_cleanup);
+	const char *endpoint_name;
+	char *aors;
+	char *aor_name;
+
+	switch (cmd) {
+	case CLI_INIT:
+		e->command = "pjsip show qualify endpoint";
+		e->usage =
+			"Usage: pjsip show qualify endpoint <id>\n"
+			"       Show the current qualify options for all Aors on the PJSIP endpoint.\n";
+		return NULL;
+	case CLI_GENERATE:
+		return NULL;
+	}
+
+	if (a->argc != 5) {
+		return CLI_SHOWUSAGE;
+	}
+
+	endpoint_name = a->argv[4];
+
+	endpoint = ast_sorcery_retrieve_by_id(ast_sip_get_sorcery(), "endpoint",
+		endpoint_name);
+	if (!endpoint) {
+		ast_cli(a->fd, "Unable to retrieve endpoint %s\n", endpoint_name);
+		return CLI_FAILURE;
+	}
+
+	if (ast_strlen_zero(endpoint->aors)) {
+		ast_cli(a->fd, "No AORs configured for endpoint '%s'\n", endpoint_name);
+		return CLI_FAILURE;
+	}
+
+	aors = ast_strdupa(endpoint->aors);
+	while ((aor_name = ast_strip(strsep(&aors, ",")))) {
+		struct sip_options_aor *aor_options;
+
+		aor_options = ao2_find(sip_options_aors, aor_name, OBJ_SEARCH_KEY);
+		if (!aor_options) {
+			continue;
+		}
+
+		ast_cli(a->fd, " * AOR '%s' on endpoint '%s'\n", aor_name, endpoint_name);
+		ast_cli(a->fd, "  Qualify frequency    : %d sec\n", aor_options->qualify_frequency);
+		ast_cli(a->fd, "  Qualify timeout      : %d ms\n", (int)(aor_options->qualify_timeout / 1000));
+		ast_cli(a->fd, "  Authenticate qualify : %s\n", aor_options->authenticate_qualify?"yes":"no");
+		ast_cli(a->fd, "\n");
+		ao2_ref(aor_options, -1);
+	}
+
+	return CLI_SUCCESS;
+}
+
+static char *cli_show_qualify_aor(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
+{
+	struct sip_options_aor *aor_options;
+	const char *aor_name;
+
+	switch (cmd) {
+	case CLI_INIT:
+		e->command = "pjsip show qualify aor";
+		e->usage =
+			"Usage: pjsip show qualify aor <id>\n"
+			"       Show the PJSIP Aor current qualify options.\n";
+		return NULL;
+	case CLI_GENERATE:
+		return NULL;
+	}
+
+	if (a->argc != 5) {
+		return CLI_SHOWUSAGE;
+	}
+
+	aor_name = a->argv[4];
+
+	aor_options = ao2_find(sip_options_aors, aor_name, OBJ_SEARCH_KEY);
+	if (!aor_options) {
+		ast_cli(a->fd, "Unable to retrieve aor '%s' qualify options\n", aor_name);
+		return CLI_FAILURE;
+	}
+
+	ast_cli(a->fd, " * AOR '%s'\n", aor_name);
+	ast_cli(a->fd, "  Qualify frequency    : %d sec\n", aor_options->qualify_frequency);
+	ast_cli(a->fd, "  Qualify timeout      : %d ms\n", (int)(aor_options->qualify_timeout / 1000));
+	ast_cli(a->fd, "  Authenticate qualify : %s\n", aor_options->authenticate_qualify?"yes":"no");
+	ao2_ref(aor_options, -1);
+
+	return CLI_SUCCESS;
+}
+
+static char *cli_reload_qualify_endpoint(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
+{
+	RAII_VAR(struct ast_sip_endpoint *, endpoint, NULL, ao2_cleanup);
+	const char *endpoint_name;
+	char *aors;
+	char *aor_name;
+
+	switch (cmd) {
+	case CLI_INIT:
+		e->command = "pjsip reload qualify endpoint";
+		e->usage =
+			"Usage: pjsip reload qualify endpoint <id>\n"
+			"       Synchronize the qualify options for all Aors on the PJSIP endpoint.\n";
+		return NULL;
+	case CLI_GENERATE:
+		return NULL;
+	}
+
+	if (a->argc != 5) {
+		return CLI_SHOWUSAGE;
+	}
+
+	endpoint_name = a->argv[4];
+
+	endpoint = ast_sorcery_retrieve_by_id(ast_sip_get_sorcery(), "endpoint",
+		endpoint_name);
+	if (!endpoint) {
+		ast_cli(a->fd, "Unable to retrieve endpoint %s\n", endpoint_name);
+		return CLI_FAILURE;
+	}
+
+	if (ast_strlen_zero(endpoint->aors)) {
+		ast_cli(a->fd, "No AORs configured for endpoint '%s'\n", endpoint_name);
+		return CLI_FAILURE;
+	}
+
+	aors = ast_strdupa(endpoint->aors);
+	while ((aor_name = ast_strip(strsep(&aors, ",")))) {
+		struct ast_sip_aor *aor;
+
+		aor = ast_sorcery_retrieve_by_id(ast_sip_get_sorcery(), "aor", aor_name);
+		if (!aor) {
+			continue;
+		}
+
+		ast_cli(a->fd, "Synchronizing AOR '%s' on endpoint '%s'\n", aor_name, endpoint_name);
+		ast_sip_push_task_wait_serializer(management_serializer,
+			sip_options_aor_observer_modified_task, aor);
+		ao2_ref(aor, -1);
+	}
+
+	return CLI_SUCCESS;
+}
+
+static char *cli_reload_qualify_aor(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
+{
+	struct ast_sip_aor *aor;
+	const char *aor_name;
+
+	switch (cmd) {
+	case CLI_INIT:
+		e->command = "pjsip reload qualify aor";
+		e->usage =
+			"Usage: pjsip reload qualify aor <id>\n"
+			"       Synchronize the PJSIP Aor qualify options.\n";
+		return NULL;
+	case CLI_GENERATE:
+		return NULL;
+	}
+
+	if (a->argc != 5) {
+		return CLI_SHOWUSAGE;
+	}
+
+	aor_name = a->argv[4];
+
+	aor = ast_sorcery_retrieve_by_id(ast_sip_get_sorcery(), "aor", aor_name);
+	if (!aor) {
+		ast_cli(a->fd, "Unable to retrieve aor '%s'\n", aor_name);
+		return CLI_FAILURE;
+	}
+
+	ast_cli(a->fd, "Synchronizing AOR '%s'\n", aor_name);
+	ast_sip_push_task_wait_serializer(management_serializer,
+		sip_options_aor_observer_modified_task, aor);
+	ao2_ref(aor, -1);
+
+	return CLI_SUCCESS;
+}
+
 static int ami_sip_qualify(struct mansession *s, const struct message *m)
 {
 	const char *endpoint_name = astman_get_header(m, "Endpoint");
@@ -2479,7 +2650,11 @@ static int ami_sip_qualify(struct mansession *s, const struct message *m)
 }
 
 static struct ast_cli_entry cli_options[] = {
-	AST_CLI_DEFINE(cli_qualify, "Send an OPTIONS request to a PJSIP endpoint")
+	AST_CLI_DEFINE(cli_qualify, "Send an OPTIONS request to a PJSIP endpoint"),
+	AST_CLI_DEFINE(cli_show_qualify_endpoint, "Show the current qualify options for all Aors on the PJSIP endpoint"),
+	AST_CLI_DEFINE(cli_show_qualify_aor, "Show the PJSIP Aor current qualify options"),
+	AST_CLI_DEFINE(cli_reload_qualify_endpoint, "Synchronize the qualify options for all Aors on the PJSIP endpoint"),
+	AST_CLI_DEFINE(cli_reload_qualify_aor, "Synchronize the PJSIP Aor qualify options"),
 };
 
 int ast_sip_format_contact_ami(void *obj, void *arg, int flags)

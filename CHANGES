@@ -31,11 +31,19 @@ Build System
    MALLOC_DEBUG and vice versa.  Third-party pre-compiled modules no longer
    need to have a special build with it enabled.
 
+ * Asterisk now depends on libjansson >= 2.11.  If this version is not
+   available on your distro you can use `./configure --with-jansson-bundled`.
+
 app_macro
 ------------------
  * The app_macro module is now deprecated and by default it is no longer
    built.  Users should migrate to app_stack (Gosub).  A warning is logged
    the first time any Macro is used.
+
+app_setcallerid
+------------------
+ * The app_setcallerid module has been removed. The CALLERID dialplan function
+   should be used instead.
 
 chan_sip
 ------------------
@@ -56,6 +64,10 @@ AMI
    and ContactStatusDetail are now set to "NonQualified" when a contact exists
    but has not been qualified.
 
+ * The "Newexten" event is now part of the "dialplan" class. The documentation
+   for Asterisk 15 already specified this, but the implementation was actually
+   using the "call" class instead.
+
 ARI
 ------------------
  * The ContactInfo event's contact_status field is now set to "NonQualified"
@@ -66,6 +78,10 @@ app_queue
  * Added the ability to set the wrapuptime in the configuration of member.
    When set the wrapuptime on the member is used instead of the wrapuptime
    defined for the queue itself.
+
+ * Added predial handler support for caller and callee channels with the
+   B and b options respectively.  This is similar to the predial support
+   in app_dial.
 
 res_config_sqlite
 ------------------
@@ -104,10 +120,43 @@ cdr_syslog
  * The cdr_syslog module is now deprecated and by default it is no longer
    built.
 
+cdr_sqlite
+------------------
+ * The cdr_sqlite module has been removed. Users should move to using the
+   cdr_sqlite3_custom module instead.
+
+format_jpeg
+------------------
+ * The format_jpeg module has been removed.
+
+pbx_dundi
+------------------
+ * DUNDi now supports IPv6
+
 Core:
 ------------------
  * libedit is no longer available as an embedded library and must be provided
    by the system.
+ * The STATIC_BUILD functionality has been removed as it has not been maintained
+   and has not worked in quite some time.
+
+------------------------------------------------------------------------------
+--- Functionality changes from Asterisk 15.5.0 to Asterisk 15.6.0 ------------
+------------------------------------------------------------------------------
+
+res_pjsip
+------------------
+ * A new option 'suppress_q850_reason_headers' has been added to the endpoint
+   object. Some devices can't accept multiple Reason headers and get confused
+   when both 'SIP' and 'Q.850' Reason headers are received.  This option allows
+   the 'Q.850' Reason header to be suppressed.  The default value is 'no'.
+
+res_pjsip_endpoint_identifier_ip
+------------------
+ * Added regex support to the identify section match_header option.  You
+   specify a regex instead of an explicit string by surrounding the header
+   value with slashes:
+   match_header = SIPHeader: /regex/
 
 ------------------------------------------------------------------------------
 --- Functionality changes from Asterisk 15.4.0 to Asterisk 15.5.0 ------------
@@ -124,10 +173,46 @@ Core
 
 app_sendtext
 ------------------
-    Support Enhanced Messaging.  SendText now accepts new channel variables
-    that can be used to override the To and From display names and set the
-    Content-Type of a message.  Since you can now set Content-Type, other
-    text/* content types are now valid.
+ * Support Enhanced Messaging.  SendText now accepts new channel variables
+   that can be used to override the To and From display names and set the
+   Content-Type of a message.  Since you can now set Content-Type, other
+   text/* content types are now valid.
+
+app_confbridge
+------------------
+ * ConfbridgeList now shows talking status. This utilizes the same voice
+   detection as the ConfbridgeTalking event, so bridges must be configured
+   with "talk_detection_events=yes" for this flag to have meaning.
+
+ * ConfBridge can now send events to participants via in-dialog MESSAGEs.
+   All current Confbridge events are supported, such as ConfbridgeJoin,
+   ConfbridgeLeave, etc.  In addition to those events, a new event
+   ConfbridgeWelcome has been added that will send a list of all
+   current participants to a new participant.
+
+res_pjsip
+------------------
+  * Two new options have been added to the system and endpoint objects to
+    control whether, on outbound calls, Asterisk will accept updated SDP answers
+    during the initial INVITE transaction when 100rel is not in effect.
+    This usually happens when the INVITE is forked to multiple UASs and more
+    than one sends an SDP answer or when a single UAS needs to change a media
+    port to switch from custom ringback to the actual media destination.
+
+    The 'follow_early_media_forked' option sets whether Asterisk will accept
+    the updated SDP when the To tag on the subsequent response is different than
+    that on the the previous response.  This usually occurs in the forked INVITE
+    scenario. The default value is "yes" which is the current behavior.
+
+    The 'accept_multiple_sdp_answers' flag sets whether Asterisk will accept the
+    updated SDP when the To tag on the subsequent response is the same as that
+    on the previous response. This can occur when a UAS needs to switch media
+    ports from custom ringback to the final media path.  The default value is
+    "no" which is the current behavior.
+
+    These options have to be enabled system-wide in the system config section
+    of pjsip.conf as well as on individual endpoints that require the
+    functionality.
 
 ------------------------------------------------------------------------------
 --- Functionality changes from Asterisk 15.3.0 to Asterisk 15.4.0 ------------

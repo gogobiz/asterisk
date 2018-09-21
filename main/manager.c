@@ -2804,6 +2804,34 @@ const char *astman_get_header(const struct message *m, char *var)
 }
 
 /*!
+ * \brief Append additional headers into the message structure from params.
+ *
+ * \note You likely want to initialize m->hdrcount to 0 before calling this.
+ */
+static void astman_append_headers(struct message *m, const struct ast_variable *params)
+{
+	const struct ast_variable *v;
+
+	for (v = params; v && m->hdrcount < ARRAY_LEN(m->headers); v = v->next) {
+		if (ast_asprintf((char**)&m->headers[m->hdrcount], "%s: %s", v->name, v->value) > -1) {
+			++m->hdrcount;
+		}
+	}
+}
+
+/*!
+ * \brief Free headers inside message structure, but not the message structure itself.
+ */
+static void astman_free_headers(struct message *m)
+{
+	while (m->hdrcount) {
+		--m->hdrcount;
+		ast_free((void *) m->headers[m->hdrcount]);
+		m->headers[m->hdrcount] = NULL;
+	}
+}
+
+/*!
  * \internal
  * \brief Process one "Variable:" header value string.
  *
@@ -4745,10 +4773,13 @@ static int action_status(struct mansession *s, const struct message *m)
 
 static int action_sendtext(struct mansession *s, const struct message *m)
 {
-	struct ast_channel *c = NULL;
+	struct ast_channel *c;
 	const char *name = astman_get_header(m, "Channel");
 	const char *textmsg = astman_get_header(m, "Message");
-	int res = 0;
+	struct ast_control_read_action_payload *frame_payload;
+	int payload_size;
+	int frame_size;
+	int res;
 
 	if (ast_strlen_zero(name)) {
 		astman_send_error(s, m, "No channel specified");
@@ -4760,13 +4791,29 @@ static int action_sendtext(struct mansession *s, const struct message *m)
 		return 0;
 	}
 
-	if (!(c = ast_channel_get_by_name(name))) {
+	c = ast_channel_get_by_name(name);
+	if (!c) {
 		astman_send_error(s, m, "No such channel");
 		return 0;
 	}
 
-	res = ast_sendtext(c, textmsg);
-	c = ast_channel_unref(c);
+	payload_size = strlen(textmsg) + 1;
+	frame_size = payload_size + sizeof(*frame_payload);
+
+	frame_payload = ast_malloc(frame_size);
+	if (!frame_payload) {
+		ast_channel_unref(c);
+		astman_send_error(s, m, "Failure");
+		return 0;
+	}
+
+	frame_payload->action = AST_FRAME_READ_ACTION_SEND_TEXT;
+	frame_payload->payload_size = payload_size;
+	memcpy(frame_payload->payload, textmsg, payload_size);
+	res = ast_queue_control_data(c, AST_CONTROL_READ_ACTION, frame_payload, frame_size);
+
+	ast_free(frame_payload);
+	ast_channel_unref(c);
 
 	if (res >= 0) {
 		astman_send_ack(s, m, "Success");
@@ -6639,7 +6686,6 @@ static int do_message(struct mansession *s)
 	struct message m = { 0 };
 	char header_buf[sizeof(s->session->inbuf)] = { '\0' };
 	int res;
-	int idx;
 	int hdr_loss;
 	time_t now;
 
@@ -6707,10 +6753,8 @@ static int do_message(struct mansession *s)
 		}
 	}
 
-	/* Free AMI request headers. */
-	for (idx = 0; idx < m.hdrcount; ++idx) {
-		ast_free((void *) m.headers[idx]);
-	}
+	astman_free_headers(&m);
+
 	return res;
 }
 
@@ -7704,13 +7748,10 @@ static int generic_http_callback(struct ast_tcptls_session_instance *ser,
 	uint32_t ident;
 	int fd;
 	int blastaway = 0;
-	struct ast_variable *v;
 	struct ast_variable *params = get_params;
 	char template[] = "/tmp/ast-http-XXXXXX";	/* template for temporary file */
 	struct ast_str *http_header = NULL, *out = NULL;
 	struct message m = { 0 };
-	unsigned int idx;
-	size_t hdrlen;
 
 	if (method != AST_HTTP_GET && method != AST_HTTP_HEAD && method != AST_HTTP_POST) {
 		ast_http_error(ser, 501, "Not Implemented", "Attempt to use unimplemented / unsupported method");
@@ -7793,17 +7834,7 @@ static int generic_http_callback(struct ast_tcptls_session_instance *ser,
 		}
 	}
 
-	for (v = params; v && m.hdrcount < ARRAY_LEN(m.headers); v = v->next) {
-		hdrlen = strlen(v->name) + strlen(v->value) + 3;
-		m.headers[m.hdrcount] = ast_malloc(hdrlen);
-		if (!m.headers[m.hdrcount]) {
-			/* Allocation failure */
-			continue;
-		}
-		snprintf((char *) m.headers[m.hdrcount], hdrlen, "%s: %s", v->name, v->value);
-		ast_debug(1, "HTTP Manager add header %s\n", m.headers[m.hdrcount]);
-		++m.hdrcount;
-	}
+	astman_append_headers(&m, params);
 
 	if (process_message(&s, &m)) {
 		if (session->authenticated) {
@@ -7818,11 +7849,7 @@ static int generic_http_callback(struct ast_tcptls_session_instance *ser,
 		session->needdestroy = 1;
 	}
 
-	/* Free request headers. */
-	for (idx = 0; idx < m.hdrcount; ++idx) {
-		ast_free((void *) m.headers[idx]);
-		m.headers[idx] = NULL;
-	}
+	astman_free_headers(&m);
 
 	ast_str_append(&http_header, 0,
 		"Content-type: text/%s\r\n"
@@ -7933,8 +7960,6 @@ static int auth_http_callback(struct ast_tcptls_session_instance *ser,
 	struct ast_str *http_header = NULL, *out = NULL;
 	size_t result_size;
 	struct message m = { 0 };
-	unsigned int idx;
-	size_t hdrlen;
 	int fd;
 
 	time_t time_now = time(NULL);
@@ -8157,17 +8182,7 @@ static int auth_http_callback(struct ast_tcptls_session_instance *ser,
 		}
 	}
 
-	for (v = params; v && m.hdrcount < ARRAY_LEN(m.headers); v = v->next) {
-		hdrlen = strlen(v->name) + strlen(v->value) + 3;
-		m.headers[m.hdrcount] = ast_malloc(hdrlen);
-		if (!m.headers[m.hdrcount]) {
-			/* Allocation failure */
-			continue;
-		}
-		snprintf((char *) m.headers[m.hdrcount], hdrlen, "%s: %s", v->name, v->value);
-		ast_verb(4, "HTTP Manager add header %s\n", m.headers[m.hdrcount]);
-		++m.hdrcount;
-	}
+	astman_append_headers(&m, params);
 
 	if (process_message(&s, &m)) {
 		if (u_displayconnects) {
@@ -8177,11 +8192,7 @@ static int auth_http_callback(struct ast_tcptls_session_instance *ser,
 		session->needdestroy = 1;
 	}
 
-	/* Free request headers. */
-	for (idx = 0; idx < m.hdrcount; ++idx) {
-		ast_free((void *) m.headers[idx]);
-		m.headers[idx] = NULL;
-	}
+	astman_free_headers(&m);
 
 	result_size = lseek(ast_iostream_get_fd(s.stream), 0, SEEK_CUR); /* Calculate approx. size of result */
 
@@ -9581,5 +9592,5 @@ AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_GLOBAL_SYMBOLS | AST_MODFLAG_LOAD_
 	.unload = unload_module,
 	.reload = reload_module,
 	.load_pri = AST_MODPRI_CORE,
-	.requires = "http",
+	.requires = "extconfig,acl,http",
 );

@@ -471,14 +471,17 @@
 					</para></description>
 				</configOption>
 				<configOption name="transport">
-					<synopsis>Desired transport configuration</synopsis>
-					<description><para>
-						This will set the desired transport configuration to send SIP data through.
+					<synopsis>Explicit transport configuration to use</synopsis>
+					<description>
+						<para>This will <emphasis>force</emphasis> the endpoint to use the
+						specified transport configuration to send SIP messages.  You need
+						to already know what kind of transport (UDP/TCP/IPv4/etc) the
+						endpoint device will use.
 						</para>
-						<warning><para>Not specifying a transport will <emphasis>DEFAULT</emphasis>
-						to the first configured transport in <filename>pjsip.conf</filename> which is
-						valid for the URI we are trying to contact.
-						</para></warning>
+						<note><para>Not specifying a transport will select the first
+						configured transport in <filename>pjsip.conf</filename> which is
+						compatible with the URI we are trying to contact.
+						</para></note>
 						<warning><para>Transport configuration is not affected by reloads. In order to
 						change transports, a full Asterisk restart is required</para></warning>
 					</description>
@@ -1080,6 +1083,44 @@
 						changes.  If not set, incoming MWI NOTIFYs are ignored.
 					</para></description>
 				</configOption>
+				<configOption name="follow_early_media_fork">
+					<synopsis>Follow SDP forked media when To tag is different</synopsis>
+					<description><para>
+						On outgoing calls, if the UAS responds with different SDP attributes
+						on subsequent 18X or 2XX responses (such as a port update) AND the
+						To tag on the subsequent response is different than that on the previous
+						one, follow it. This usually happens when the INVITE is forked to multiple
+						UASs and more than one sends an SDP answer.
+						</para>
+						<note><para>
+							This option must also be enabled in the <literal>system</literal>
+							section for it to take effect here.
+						</para></note>
+					</description>
+				</configOption>
+				<configOption name="accept_multiple_sdp_answers" default="no">
+					<synopsis>Accept multiple SDP answers on non-100rel responses</synopsis>
+					<description><para>
+						On outgoing calls, if the UAS responds with different SDP attributes
+						on non-100rel 18X or 2XX responses (such as a port update) AND the
+						To tag on the subsequent response is the same as that on the previous one,
+						process the updated SDP.  This can happen when the UAS needs to change ports
+						for some reason such as using a separate port for custom ringback.
+						</para>
+						<note><para>
+							This option must also be enabled in the <literal>system</literal>
+							section for it to take effect here.
+						</para></note>
+					</description>
+				</configOption>
+				<configOption name="suppress_q850_reason_headers" default="no">
+					<synopsis>Suppress Q.850 Reason headers for this endpoint</synopsis>
+					<description><para>
+						Some devices can't accept multiple Reason headers and get confused
+						when both 'SIP' and 'Q.850' Reason headers are received.  This
+						option allows the 'Q.850' Reason header to be suppressed.</para>
+					</description>
+				</configOption>
 			</configObject>
 			<configObject name="auth">
 				<synopsis>Authentication type</synopsis>
@@ -1181,13 +1222,13 @@
 					<synopsis>IP Address and optional port to bind to for this transport</synopsis>
 				</configOption>
 				<configOption name="ca_list_file">
-					<synopsis>File containing a list of certificates to read (TLS ONLY)</synopsis>
+					<synopsis>File containing a list of certificates to read (TLS ONLY, not WSS)</synopsis>
 				</configOption>
 				<configOption name="ca_list_path">
-					<synopsis>Path to directory containing a list of certificates to read (TLS ONLY)</synopsis>
+					<synopsis>Path to directory containing a list of certificates to read (TLS ONLY, not WSS)</synopsis>
 				</configOption>
 				<configOption name="cert_file">
-					<synopsis>Certificate file for endpoint (TLS ONLY)</synopsis>
+					<synopsis>Certificate file for endpoint (TLS ONLY, not WSS)</synopsis>
 					<description><para>
 						A path to a .crt or .pem file can be provided.  However, only
 						the certificate is read from the file, not the private key.
@@ -1196,7 +1237,7 @@
 					</para></description>
 				</configOption>
 				<configOption name="cipher">
-					<synopsis>Preferred cryptography cipher names (TLS ONLY)</synopsis>
+					<synopsis>Preferred cryptography cipher names (TLS ONLY, not WSS)</synopsis>
 					<description>
 					<para>Comma separated list of cipher names or numeric equivalents.
 						Numeric equivalents can be either decimal or hexadecimal (0xX).
@@ -1228,7 +1269,7 @@
 					<synopsis>External port for SIP signalling</synopsis>
 				</configOption>
 				<configOption name="method">
-					<synopsis>Method of SSL transport (TLS ONLY)</synopsis>
+					<synopsis>Method of SSL transport (TLS ONLY, not WSS)</synopsis>
 					<description>
 						<enumlist>
 							<enum name="default">
@@ -1255,7 +1296,7 @@
 					<synopsis>Password required for transport</synopsis>
 				</configOption>
 				<configOption name="priv_key_file">
-					<synopsis>Private key file (TLS ONLY)</synopsis>
+					<synopsis>Private key file (TLS ONLY, not WSS)</synopsis>
 				</configOption>
 				<configOption name="protocol" default="udp">
 					<synopsis>Protocol to use for SIP traffic</synopsis>
@@ -1270,16 +1311,16 @@
 					</description>
 				</configOption>
 				<configOption name="require_client_cert" default="false">
-					<synopsis>Require client certificate (TLS ONLY)</synopsis>
+					<synopsis>Require client certificate (TLS ONLY, not WSS)</synopsis>
 				</configOption>
 				<configOption name="type">
 					<synopsis>Must be of type 'transport'.</synopsis>
 				</configOption>
 				<configOption name="verify_client" default="false">
-					<synopsis>Require verification of client certificate (TLS ONLY)</synopsis>
+					<synopsis>Require verification of client certificate (TLS ONLY, not WSS)</synopsis>
 				</configOption>
 				<configOption name="verify_server" default="false">
-					<synopsis>Require verification of server certificate (TLS ONLY)</synopsis>
+					<synopsis>Require verification of server certificate (TLS ONLY, not WSS)</synopsis>
 				</configOption>
 				<configOption name="tos" default="false">
 					<synopsis>Enable TOS for the signalling sent over this transport</synopsis>
@@ -1647,8 +1688,36 @@
 						request is too large.  See RFC 3261 section 18.1.1.
 					</para></description>
 				</configOption>
+				<configOption name="follow_early_media_fork">
+					<synopsis>Follow SDP forked media when To tag is different</synopsis>
+					<description><para>
+						On outgoing calls, if the UAS responds with different SDP attributes
+						on subsequent 18X or 2XX responses (such as a port update) AND the
+						To tag on the subsequent response is different than that on the previous
+						one, follow it.
+						</para>
+						<note><para>
+							This option must also be enabled on endpoints that require
+							this functionality.
+						</para></note>
+					</description>
+				</configOption>
+				<configOption name="accept_multiple_sdp_answers">
+					<synopsis>Follow SDP forked media when To tag is the same</synopsis>
+					<description><para>
+						On outgoing calls, if the UAS responds with different SDP attributes
+						on non-100rel 18X or 2XX responses (such as a port update) AND the
+						To tag on the subsequent response is the same as that on the previous one,
+						process the updated SDP.
+						</para>
+						<note><para>
+							This option must also be enabled on endpoints that require
+							this functionality.
+						</para></note>
+					</description>
+				</configOption>
 				<configOption name="type">
-					<synopsis>Must be of type 'system'.</synopsis>
+					<synopsis>Must be of type 'system' UNLESS the object name is 'system'.</synopsis>
 				</configOption>
 			</configObject>
 			<configObject name="global">
@@ -1660,7 +1729,7 @@
 				<configOption name="max_forwards" default="70">
 					<synopsis>Value used in Max-Forwards header for SIP requests.</synopsis>
 				</configOption>
-				<configOption name="keep_alive_interval" default="0">
+				<configOption name="keep_alive_interval" default="90">
 					<synopsis>The interval (in seconds) to send keepalives to active connection-oriented transports.</synopsis>
 				</configOption>
 				<configOption name="contact_expiration_check_interval" default="30">
@@ -1695,7 +1764,7 @@
 					twice the unidentified_request_period are pruned.</synopsis>
 				</configOption>
 				<configOption name="type">
-					<synopsis>Must be of type 'global'.</synopsis>
+					<synopsis>Must be of type 'global' UNLESS the object name is 'global'.</synopsis>
 				</configOption>
 				<configOption name="user_agent" default="Asterisk &lt;Asterisk Version&gt;">
 					<synopsis>Value used in User-Agent header for SIP requests and Server header for SIP responses.</synopsis>
@@ -3605,6 +3674,8 @@ int ast_sip_create_rdata_with_contact(pjsip_rx_data *rdata, char *packet, const 
 	ast_copy_string(rdata->pkt_info.packet, packet, sizeof(rdata->pkt_info.packet));
 	ast_copy_string(rdata->pkt_info.src_name, src_name, sizeof(rdata->pkt_info.src_name));
 	rdata->pkt_info.src_port = src_port;
+	pj_sockaddr_parse(pj_AF_UNSPEC(), 0, pj_cstr(&tmp, src_name), &rdata->pkt_info.src_addr);
+	pj_sockaddr_set_port(&rdata->pkt_info.src_addr, src_port);
 
 	pjsip_parse_rdata(packet, strlen(packet), rdata);
 	if (!rdata->msg_info.msg || !pj_list_empty(&rdata->msg_info.parse_err)) {
@@ -3710,7 +3781,7 @@ static int create_out_of_dialog_request(const pjsip_method *method, struct ast_s
 			contact = ast_sip_location_retrieve_contact_from_aor_list(endpoint->aors);
 		}
 		if (!contact || ast_strlen_zero(contact->uri)) {
-			ast_log(LOG_ERROR, "Unable to retrieve contact for endpoint %s\n",
+			ast_log(LOG_WARNING, "Unable to retrieve contact for endpoint %s\n",
 					ast_sorcery_object_get_id(endpoint));
 			return -1;
 		}

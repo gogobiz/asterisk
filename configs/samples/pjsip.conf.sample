@@ -288,8 +288,8 @@
 ; a transport that you'll need to uncomment from the previous examples.
 ;
 ; Uncomment one of the transport lines to choose which transport you want. If
-; not specified then the default transport chosen is the first defined transport
-; in the configuration file.
+; not specified then the default transport chosen is the first compatible transport
+; in the configuration file for the contact URL.
 ;
 ; Modify the "max_contacts=" line to change how many unique registrations to allow.
 ;
@@ -670,7 +670,12 @@
 ;timers=yes     ; Session timers for SIP packets (default: "yes")
 ;timers_sess_expires=1800       ; Maximum session timer expiration period
                                 ; (default: "1800")
-;transport=     ; Desired transport configuration (default: "")
+;transport=     ; Explicit transport configuration to use (default: "")
+                ; This will force the endpoint to use the specified transport
+                ; configuration to send SIP messages.  You need to already know
+                ; what kind of transport (UDP/TCP/IPv4/etc) the endpoint device
+                ; will use.
+
 ;trust_id_inbound=no    ; Accept identification information received from this
                         ; endpoint (default: "no")
 ;trust_id_outbound=no   ; Send private identification details to the endpoint
@@ -809,6 +814,34 @@
                         ; this mailbox will be used when notifying other modules
                         ; of MWI status changes.  If not set, incoming MWI
                         ; NOTIFYs are ignored.
+;follow_early_media_fork = ; On outgoing calls, if the UAS responds with
+                           ; different SDP attributes on subsequent 18X or 2XX
+                           ; responses (such as a port update) AND the To tag
+                           ; on the subsequent response is different than that
+                           ; on the previous one, follow it.  This usually
+                           ; happens when the INVITE is forked to multiple UASs
+                           ; and more than 1 sends an SDP answer.
+                           ; This option must also be enabled in the system
+                           ; section.
+                           ; (default: yes)
+;accept_multiple_sdp_answers =
+                           ; On outgoing calls, if the UAS responds with
+                           ; different SDP attributes on non-100rel 18X or 2XX
+                           ; responses (such as a port update) AND the To tag on
+                           ; the subsequent response is the same as that on the
+                           ; previous one, process it. This can happen when the
+                           ; UAS needs to change ports for some reason such as
+                           ; using a separate port for custom ringback.
+                           ; This option must also be enabled in the system
+                           ; section.
+                           ; (default: no)
+;suppress_q850_reason_headers =
+                           ; Suppress Q.850 Reason headers for this endpoint.
+                           ; Some devices can't accept multiple Reason headers
+                           ; and get confused when both 'SIP' and 'Q.850' Reason
+                           ; headers are received.  This option allows the
+                           ; 'Q.850' Reason header to be suppressed.
+                           ; (default: no)
 
 ;==========================AUTH SECTION OPTIONS=========================
 ;[auth]
@@ -841,10 +874,13 @@
 ;==========================TRANSPORT SECTION OPTIONS=========================
 ;[transport]
 ;  SYNOPSIS: SIP Transport
+;
 ;async_operations=1     ; Number of simultaneous Asynchronous Operations
                         ; (default: "1")
 ;bind=  ; IP Address and optional port to bind to for this transport (default:
         ; "")
+; Note that for the Websocket transport the TLS configuration is configured
+; in http.conf and is applied for all HTTPS traffic.
 ;ca_list_file=  ; File containing a list of certificates to read TLS ONLY
                 ; (default: "")
 ;ca_list_path=  ; Path to directory containing certificates to read TLS ONLY.
@@ -862,6 +898,13 @@
                 ; different, at least OpenSSL 1.0.2 is required.
                 ; (default: "")
 ;cipher=        ; Preferred cryptography cipher names TLS ONLY (default: "")
+;method=        ; Method of SSL transport TLS ONLY (default: "")
+;priv_key_file= ; Private key file TLS ONLY (default: "")
+;verify_client= ; Require verification of client certificate TLS ONLY (default:
+                ; "")
+;verify_server= ; Require verification of server certificate TLS ONLY (default:
+                ; "")
+;require_client_cert=   ; Require client certificate TLS ONLY (default: "")
 ;domain=        ; Domain the transport comes from (default: "")
 ;external_media_address=        ; External IP address to use in RTP handling
                                 ; (default: "")
@@ -869,17 +912,10 @@
                                 ; "")
 ;external_signaling_port=0      ; External port for SIP signalling (default:
                                 ; "0")
-;method=        ; Method of SSL transport TLS ONLY (default: "")
 ;local_net=     ; Network to consider local used for NAT purposes (default: "")
 ;password=      ; Password required for transport (default: "")
-;priv_key_file= ; Private key file TLS ONLY (default: "")
 ;protocol=udp   ; Protocol to use for SIP traffic (default: "udp")
-;require_client_cert=   ; Require client certificate TLS ONLY (default: "")
 ;type=  ; Must be of type transport (default: "")
-;verify_client= ; Require verification of client certificate TLS ONLY (default:
-                ; "")
-;verify_server= ; Require verification of server certificate TLS ONLY (default:
-                ; "")
 ;tos=0  ; Enable TOS for the signalling sent over this transport (default: "0")
 ;cos=0  ; Enable COS for the signalling sent over this transport (default: "0")
 ;websocket_write_timeout=100    ; Default write timeout to set on websocket
@@ -961,6 +997,27 @@
                         ; Disabling this option has been known to cause interoperability
                         ; issues, so disable at your own risk.
                         ; (default: "yes")
+;follow_early_media_fork = ; On outgoing calls, if the UAS responds with
+                           ; different SDP attributes on subsequent 18X or 2XX
+                           ; responses (such as a port update) AND the To tag
+                           ; on the subsequent response is different than that
+                           ; on the previous one, follow it.  This usually
+                           ; happens when the INVITE is forked to multiple UASs
+                           ; and more than 1 sends an SDP answer.
+                           ; This option must also be enabled on endpoints that
+                           ; require this functionality.
+                           ; (default: yes)
+;accept_multiple_sdp_answers =
+                           ; On outgoing calls, if the UAS responds with
+                           ; different SDP attributes on non-100rel 18X or 2XX
+                           ; responses (such as a port update) AND the To tag on
+                           ; the subsequent response is the same as that on the
+                           ; previous one, process it. This can happen when the
+                           ; UAS needs to change ports for some reason such as
+                           ; using a separate port for custom ringback.
+                           ; This option must also be enabled on endpoints that
+                           ; require this functionality.
+                           ; (default: no)
 ;type=  ; Must be of type system (default: "")
 
 ;==========================GLOBAL SECTION OPTIONS=========================
