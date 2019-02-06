@@ -10,11 +10,11 @@ cat << END
  * build.h
  * Automatically generated
  */
-#define BUILD_HOSTNAME "${HOSTNAME}"
-#define BUILD_KERNEL "${KERNEL}"
+#define BUILD_HOSTNAME "jaguar"
+#define BUILD_KERNEL "jaguar"
 #define BUILD_MACHINE "${MACHINE}"
 #define BUILD_OS "${OS}"
 #define BUILD_DATE "${DATE} UTC"
-#define BUILD_USER "${USER}"
+#define BUILD_USER "jaguar"
 
 END
