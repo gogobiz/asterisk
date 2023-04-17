@@ -628,7 +628,7 @@ static void debug_ha_sense_appended(struct ast_ha *ha)
 /* Need two different types of append. One that preserves the address, and
  * one that cuts it down to the subnet.
  */
-static struct ast_ha *ast_append_ha_long(const char *sense, const char *stuff, struct ast_ha *path, int *error, int subnet)
+static struct ast_ha *ast_append_ha_core(const char *sense, const char *stuff, struct ast_ha *path, int *error, int port_flags, int subnet)
 {
 	struct ast_ha *ha;
 	struct ast_ha *prev = NULL;
@@ -763,12 +763,17 @@ static struct ast_ha *ast_append_ha_long(const char *sense, const char *stuff, s
 
 struct ast_ha *ast_append_ha_addr(const char *sense, const char *stuff, struct ast_ha *path, int *error)
 {
-	return ast_append_ha_long(sense, stuff, path, error, 0);
+	return ast_append_ha_core(sense, stuff, path, error, PARSE_PORT_FORBID, 0);
 }
 
 struct ast_ha *ast_append_ha(const char *sense, const char *stuff, struct ast_ha *path, int *error)
 {
-	return ast_append_ha_long(sense, stuff, path, error, 1);
+	return ast_append_ha_core(sense, stuff, path, error, PARSE_PORT_FORBID, 1);
+}
+
+struct ast_ha *ast_append_ha_with_port(const char *sense, const char *stuff, struct ast_ha *path, int *error)
+{
+	return ast_append_ha_core(sense, stuff, path, error, 0, 1);
 }
 
 /* End Gogo edit */
