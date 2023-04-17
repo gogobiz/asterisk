@@ -3059,19 +3059,20 @@ static void *_sip_tcp_helper_thread(struct ast_tcptls_session_instance *tcptls_s
 	keepalive_cnt = 3;
 	keepalive_time = 2000;
 	keepalive_intvl = 500;
+    int fd = ast_iostream_get_fd(tcptls_session->stream);
 
-	if (setsockopt(tcptls_session->fd, SOL_SOCKET, SO_KEEPALIVE, &flags, sizeof(flags))) {
+	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &flags, sizeof(flags))) {
 		ast_log(LOG_ERROR, "error enabling TCP keep-alives on sip socket: %s\n", strerror(errno));
 		goto cleanup;
 	}
-        if (setsockopt(tcptls_session->fd, SOL_SOCKET, TCP_KEEPCNT,
+        if (setsockopt(fd, SOL_SOCKET, TCP_KEEPCNT,
 		&keepalive_cnt, sizeof(keepalive_cnt))) {
 		ast_log(LOG_ERROR,
 			"error setting TCP_KEEPCNT to %i on sip socket: %s\n",
 			keepalive_cnt, strerror(errno));
 		goto cleanup;
 	}
-	if (setsockopt(tcptls_session->fd, IPPROTO_TCP, TCP_KEEPIDLE,
+	if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,
 		&keepalive_time, sizeof(keepalive_time))) {
 		ast_log(LOG_ERROR,
 			"error enabling TCP keepalive idle time to %i "
@@ -3080,7 +3081,7 @@ static void *_sip_tcp_helper_thread(struct ast_tcptls_session_instance *tcptls_s
 	 	// correctly - need to investigate with OE
 		// goto cleanup;
 	}
-	if (setsockopt(tcptls_session->fd, SOL_SOCKET, TCP_KEEPINTVL,
+	if (setsockopt(fd, SOL_SOCKET, TCP_KEEPINTVL,
 		&keepalive_intvl, sizeof(keepalive_intvl))) {
 		ast_log(LOG_ERROR,
 			"error enabling TCP keep-alive probe interval to %i "
@@ -3141,7 +3142,7 @@ static void *_sip_tcp_helper_thread(struct ast_tcptls_session_instance *tcptls_s
 		}
 
 		/* Modification to trip SSL only client sockets unreachable and close it */
-		if (tcptls_session->client && tcptls_session->ssl && tcptls_session->stale) {
+		if (tcptls_session->client && ast_iostream_get_ssl(tcptls_session->stream) && tcptls_session->stale) {
 			ast_log(LOG_NOTICE, "Found TCP/TLS client with stale socket. Cleaning up socket\n");
 			goto cleanup;
 		}
