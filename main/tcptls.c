@@ -720,9 +720,16 @@ struct ast_tcptls_session_instance *ast_tcptls_client_create(struct ast_tcptls_s
 	if (!tcptls_session->overflow_buf) {
 		goto error;
 	}
-	tcptls_session->client = 1;
 	tcptls_session->stale = 0;
-	tcptls_session->fd = desc->accept_fd;
+	tcptls_session->client = 1;
+	tcptls_session->stream = ast_iostream_from_fd(&fd);
+	if (!tcptls_session->stream) {
+		goto error;
+	}
+
+	/* From here on out, the iostream owns the accept_fd and it will take
+	 * care of closing it when the iostream is closed */
+
 	tcptls_session->parent = desc;
 	tcptls_session->parent->worker_fn = NULL;
 	ast_sockaddr_copy(&tcptls_session->remote_address,
