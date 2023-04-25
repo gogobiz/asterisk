@@ -926,6 +926,15 @@ const struct ast_ha *ast_subnet_member(const struct ast_ha *ha, const struct ast
 	return ret;
 }
 
+
+enum ast_acl_sense ast_apply_acl(struct ast_acl_list *acl_list, const struct ast_sockaddr *addr, const char *purpose) {
+        return ast_apply_acl_internal(acl_list, addr, purpose ?: "");
+}
+
+enum ast_acl_sense ast_apply_acl_nolog(struct ast_acl_list *acl_list, const struct ast_sockaddr *addr) {
+        return ast_apply_acl_internal(acl_list, addr, NULL);
+}
+
 enum ast_acl_sense ast_apply_ha(const struct ast_ha *ha, const struct ast_sockaddr *addr)
 {
 	const struct ast_ha *current_ha = ast_subnet_member(ha, addr);
