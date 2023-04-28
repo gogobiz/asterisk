@@ -3899,16 +3899,13 @@ static int ice_create(struct ast_rtp_instance *instance, struct ast_sockaddr *ad
 }
 #endif
 
-/*! \pre instance is locked */
-static int ast_rtp_new(struct ast_rtp_instance *instance,
-		       struct ast_sched_context *sched, struct ast_sockaddr *addr,
-		       void *data, const char *peername)
+static int rtp_allocate_transport(struct ast_rtp_instance *instance, struct ast_rtp *rtp, const char* peername)
 {
 	int x, startplace;
-	int startport, endport;
+	int startport, endport, i, maxloops;
 
 	rtp->strict_rtp_state = (strictrtp ? STRICT_RTP_CLOSED : STRICT_RTP_OPEN);
-
+    
 	/* Create a new socket for us to listen on and use */
 	if ((rtp->s =
 	     create_new_socket("RTP",
@@ -3918,13 +3915,11 @@ static int ast_rtp_new(struct ast_rtp_instance *instance,
 		return -1;
 	}
 
-
 	/* Gogo Addition - Check if RTP ports were over-ridden */
 	/* rtpstart and rtpend are the default global start and end ports */
 	startport = rtpstart;
 	endport = rtpend;
 	if (peername != NULL && strlen(peername) > 0) {
-		int i;
 		for (i = 0; i < override_peer_count; ++i) {
 			if (strncmp(opeers[i].peername, peername, strlen(opeers[i].peername)) == 0) {
 				ast_debug(1, "\nGogo Edit: RTP Port range is over ridden for peer %s.\n", peername);
@@ -4094,7 +4089,7 @@ static void rtp_deallocate_transport(struct ast_rtp_instance *instance, struct a
 /*! \pre instance is locked */
 static int ast_rtp_new(struct ast_rtp_instance *instance,
 		       struct ast_sched_context *sched, struct ast_sockaddr *addr,
-		       void *data)
+		       void *data, const char *peername)
 {
 	struct ast_rtp *rtp = NULL;
 
@@ -4115,7 +4110,7 @@ static int ast_rtp_new(struct ast_rtp_instance *instance,
 	/* Transport creation operations can grab the RTP data from the instance, so set it */
 	ast_rtp_instance_set_data(instance, rtp);
 
-	if (rtp_allocate_transport(instance, rtp)) {
+	if (rtp_allocate_transport(instance, rtp, peername)) {
 		return -1;
 	}
 
@@ -9419,7 +9414,7 @@ static int ast_rtp_bundle(struct ast_rtp_instance *child, struct ast_rtp_instanc
 
 	if (!parent) {
 		/* We transitioned away from bundle so we need our own transport resources once again */
-		rtp_allocate_transport(child, child_rtp);
+		rtp_allocate_transport(child, child_rtp, NULL);
 		return 0;
 	}
 
