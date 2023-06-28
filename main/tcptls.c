@@ -720,7 +720,6 @@ struct ast_tcptls_session_instance *ast_tcptls_client_create(struct ast_tcptls_s
 	if (!tcptls_session->overflow_buf) {
 		goto error;
 	}
-	tcptls_session->stale = 0;
 	tcptls_session->client = 1;
 	tcptls_session->stream = ast_iostream_from_fd(&fd);
 	if (!tcptls_session->stream) {
