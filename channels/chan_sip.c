@@ -30663,6 +30663,28 @@ static int sip_poke_noanswer(const void *data)
 		if (sip_cfg.regextenonqualify) {
 			register_peer_exten(peer, FALSE);
 		}
+
+
+	}
+
+	if (peer->monitor_tcptls
+	&& (peer->socket.type & ( AST_TRANSPORT_TCP | AST_TRANSPORT_TLS))) {
+
+		struct ast_sockaddr sa_tmp;
+		struct ast_tcptls_session_instance *tcptls_session;
+
+		// Poke failed...
+		peer->failed_pokes++;
+		ast_debug(5, "Peer TCP/TLS socket monitoring is turned on. Incrementing counter to %d of %d.\n", peer->failed_pokes, peer->max_failed_pokes);
+
+		ast_sockaddr_copy(&sa_tmp, &peer->addr);
+		tcptls_session = sip_tcp_locate(&sa_tmp);
+
+		if(peer->failed_pokes >= peer->max_failed_pokes) {
+			ast_debug(3, "Peer TCP/TLS socket is stale! Marked socket to be killed\n");
+			tcptls_session->stale = 1;
+			peer->failed_pokes = 0;
+		}
 	}
 
 	if (peer->call) {
