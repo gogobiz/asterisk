@@ -2997,7 +2997,6 @@ static int sip_tcptls_read(struct sip_request *req, struct ast_tcptls_session_in
 static void *_sip_tcp_helper_thread(struct ast_tcptls_session_instance *tcptls_session)
 {
 	int res, timeout = -1, authenticated = 0, flags;
-	int keepalive_cnt, keepalive_intvl, keepalive_time;
 	time_t start;
 	struct sip_request req = { 0, } , reqcpy = { 0, };
 	struct sip_threadinfo *me = NULL;
@@ -3045,51 +3044,12 @@ static void *_sip_tcp_helper_thread(struct ast_tcptls_session_instance *tcptls_s
 		}
 	}
 
-	/* Socket Keepalive Tuning To More Aggressive State */
-
-	// TCP_KEEPCNT   - tcp_keepalive_probes 
-	//	number of unacknowledged probes before killing socket
-	// TCP_KEEPIDLE  - tcp_keepalive_time
-	// 	interval of time between last packet and first keepalive
-	// TCP_KEEPINTVL - tcp_keepalive_intvl
-	// 	interval between subsequential keepalive probes,
-	// 	regardless of what connection has done
-
-  	flags = 1;
-	keepalive_cnt = 3;
-	keepalive_time = 2000;
-	keepalive_intvl = 500;
-    int fd = ast_iostream_get_fd(tcptls_session->stream);
-
-	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &flags, sizeof(flags))) {
+	flags = 1;
+	if (setsockopt(ast_iostream_get_fd(tcptls_session->stream), SOL_SOCKET, SO_KEEPALIVE, &flags, sizeof(flags))) {
 		ast_log(LOG_ERROR, "error enabling TCP keep-alives on sip socket: %s\n", strerror(errno));
 		goto cleanup;
 	}
-        if (setsockopt(fd, SOL_SOCKET, TCP_KEEPCNT,
-		&keepalive_cnt, sizeof(keepalive_cnt))) {
-		ast_log(LOG_ERROR,
-			"error setting TCP_KEEPCNT to %i on sip socket: %s\n",
-			keepalive_cnt, strerror(errno));
-		goto cleanup;
-	}
-	if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,
-		&keepalive_time, sizeof(keepalive_time))) {
-		ast_log(LOG_ERROR,
-			"error enabling TCP keepalive idle time to %i "
-			"on sip socket: %s\n", keepalive_time, strerror(errno));
-	 	// Temp disable this, to see if socket will still execute
-	 	// correctly - need to investigate with OE
-		// goto cleanup;
-	}
-	if (setsockopt(fd, SOL_SOCKET, TCP_KEEPINTVL,
-		&keepalive_intvl, sizeof(keepalive_intvl))) {
-		ast_log(LOG_ERROR,
-			"error enabling TCP keep-alive probe interval to %i "
-			"sip socket: %s\n", keepalive_intvl, strerror(errno));
-		goto cleanup;
-	}
-  
-	me->threadid = pthread_self();
+
 	ast_debug(2, "Starting thread for %s server\n", ast_iostream_get_ssl(tcptls_session->stream) ? "TLS" : "TCP");
 
 	/* set up pollfd to watch for reads on both the socket and the alert_pipe */
@@ -30662,28 +30622,6 @@ static int sip_poke_noanswer(const void *data)
 
 		if (sip_cfg.regextenonqualify) {
 			register_peer_exten(peer, FALSE);
-		}
-
-
-	}
-
-	if (peer->monitor_tcptls
-	&& (peer->socket.type & ( AST_TRANSPORT_TCP | AST_TRANSPORT_TLS))) {
-
-		struct ast_sockaddr sa_tmp;
-		struct ast_tcptls_session_instance *tcptls_session;
-
-		// Poke failed...
-		peer->failed_pokes++;
-		ast_debug(5, "Peer TCP/TLS socket monitoring is turned on. Incrementing counter to %d of %d.\n", peer->failed_pokes, peer->max_failed_pokes);
-
-		ast_sockaddr_copy(&sa_tmp, &peer->addr);
-		tcptls_session = sip_tcp_locate(&sa_tmp);
-
-		if(peer->failed_pokes >= peer->max_failed_pokes) {
-			ast_debug(3, "Peer TCP/TLS socket is stale! Marked socket to be killed\n");
-			tcptls_session->stale = 1;
-			peer->failed_pokes = 0;
 		}
 	}
 
