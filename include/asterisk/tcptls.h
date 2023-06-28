@@ -149,7 +149,6 @@ struct ast_tcptls_session_args {
  */
 struct ast_tcptls_session_instance {
 	int client;
-	int stale;
 	struct ast_sockaddr remote_address;
 	struct ast_tcptls_session_args *parent;
 	/* Sometimes, when an entity reads TCP data, multiple
