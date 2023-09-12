@@ -1488,7 +1488,7 @@ UPDATE alembic_version SET version_num='9f3692b1654b' WHERE alembic_version.vers
 
 CREATE TYPE pjsip_100rel_values_v2 AS ENUM ('no', 'required', 'peer_supported', 'yes');
 
-ALTER TABLE ps_endpoints ALTER COLUMN 100rel TYPE pjsip_100rel_values_v2 USING 100rel::text::pjsip_100rel_values_v2;
+ALTER TABLE ps_endpoints ALTER COLUMN "100rel" TYPE pjsip_100rel_values_v2 USING "100rel"::text::pjsip_100rel_values_v2;
 
 DROP TYPE pjsip_100rel_values;
 
@@ -1525,6 +1525,18 @@ UPDATE alembic_version SET version_num='5a2247c957d2' WHERE alembic_version.vers
 ALTER TABLE ps_endpoints ADD COLUMN overlap_context VARCHAR(80);
 
 UPDATE alembic_version SET version_num='f261363a857f' WHERE alembic_version.version_num = '5a2247c957d2';
+
+-- Running upgrade f261363a857f -> 4042a0ff4d9f
+
+ALTER TABLE queue_members ADD COLUMN reason_paused VARCHAR(80);
+
+UPDATE alembic_version SET version_num='4042a0ff4d9f' WHERE alembic_version.version_num = 'f261363a857f';
+
+-- Running upgrade 4042a0ff4d9f -> f5b0e7427449
+
+ALTER TABLE musiconhold ADD COLUMN loop_last yesno_values;
+
+UPDATE alembic_version SET version_num='f5b0e7427449' WHERE alembic_version.version_num = '4042a0ff4d9f';
 
 COMMIT;
 
