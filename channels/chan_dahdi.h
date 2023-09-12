@@ -205,6 +205,13 @@ struct dahdi_pvt {
 	 */
 	unsigned int busydetect:1;
 	/*!
+	 * \brief TRUE if Called Subscriber held is enabled.
+	 * This allows a single incoming call to hold a DAHDI channel up,
+	 * allowing a recipient to hang up an extension and pick up another
+	 * phone on the same line without disconnecting the call.
+	 */
+	unsigned int calledsubscriberheld:1;
+	/*!
 	 * \brief TRUE if call return is enabled.
 	 * (*69, if your dialplan doesn't catch this first)
 	 * \note Set from the "callreturn" value read in from chan_dahdi.conf
@@ -276,6 +283,14 @@ struct dahdi_pvt {
 	 * \note Set from the "hanguponpolarityswitch" value read in from chan_dahdi.conf
 	 */
 	unsigned int hanguponpolarityswitch:1;
+	/*!
+	 * \brief TRUE if FXS (FXO-signalled) channel should reoriginate for user to make a new call.
+	 */
+	unsigned int reoriginate:1;
+	/*!
+	 * \brief Internal flag for if we should actually process a reorigination.
+	 */
+	unsigned int doreoriginate:1;
 	/*! \brief TRUE if DTMF detection needs to be done by hardware. */
 	unsigned int hardwaredtmf:1;
 	/*!
@@ -299,6 +314,12 @@ struct dahdi_pvt {
 	 * \note Set from the "immediate" value read in from chan_dahdi.conf
 	 */
 	unsigned int immediate:1;
+	/*!
+	 * \brief TRUE if audible ringback should be provided
+	 * when immediate = yes.
+	 * \note Set from the "immediatering" value read in from chan_dahdi.conf
+	 */
+	unsigned int immediatering:1;
 	/*! \brief TRUE if in an alarm condition. */
 	unsigned int inalarm:1;
 	/*! \brief TRUE if TDD in MATE mode */
@@ -345,6 +366,11 @@ struct dahdi_pvt {
 	 * \note Set from the "threewaycalling" value read in from chan_dahdi.conf
 	 */
 	unsigned int threewaycalling:1;
+	/*!
+	 * \brief TRUE if a three way dial tone should time out to silence
+	 * \note Set from the "threewaysilenthold" value read in from chan_dahdi.conf
+	 */
+	unsigned int threewaysilenthold:1;
 	/*!
 	 * \brief TRUE if call transfer is enabled
 	 * \note For FXS ports (either direct analog or over T1/E1):

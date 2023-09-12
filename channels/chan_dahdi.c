@@ -1038,6 +1038,7 @@ static struct dahdi_chan_conf dahdi_chan_conf_default(void)
 #endif
 		.chan = {
 			.context = "default",
+			.immediatering = 1,
 			.cid_num = "",
 			.cid_name = "",
 			.cid_tag = "",
@@ -1459,6 +1460,18 @@ static int my_get_callerid(void *pvt, char *namebuf, char *numbuf, enum analog_e
 			if (num)
 				ast_copy_string(numbuf, num, ANALOG_MAX_CID);
 
+			if (flags & (CID_PRIVATE_NUMBER | CID_UNKNOWN_NUMBER)) {
+				/* If we got a presentation, we must set it on the channel */
+				struct ast_channel *chan = analog_p->ss_astchan;
+				struct ast_party_caller caller;
+
+				ast_party_caller_set_init(&caller, ast_channel_caller(chan));
+				caller.id.name.presentation = caller.id.number.presentation = (flags & CID_PRIVATE_NUMBER) ?
+					AST_PRES_RESTRICTED | AST_PRES_USER_NUMBER_UNSCREENED : AST_PRES_UNAVAILABLE | AST_PRES_USER_NUMBER_UNSCREENED;
+				ast_party_caller_set(ast_channel_caller(chan), &caller, NULL);
+				ast_party_caller_free(&caller);
+			}
+
 			ast_debug(1, "CallerID number: %s, name: %s, flags=%d\n", num, name, flags);
 			return 0;
 		}
@@ -1645,6 +1658,7 @@ static int my_callwait(void *pvt)
 static int my_send_callerid(void *pvt, int cwcid, struct ast_party_caller *caller)
 {
 	struct dahdi_pvt *p = pvt;
+	struct analog_pvt *analog_p = p->sig_pvt;
 
 	ast_debug(2, "Starting cid spill\n");
 
@@ -1656,13 +1670,20 @@ static int my_send_callerid(void *pvt, int cwcid, struct ast_party_caller *calle
 	if ((p->cidspill = ast_malloc(MAX_CALLERID_SIZE))) {
 		int pres = ast_party_id_presentation(&caller->id);
 		if (cwcid == 0) {
+			/* Some CPE support additional parameters for on-hook Caller*ID,
+			 * such as redirecting reason and call qualifier, so send those
+			 * if available.
+			 * I don't know of any CPE that supports this for Call Waiting (unfortunately),
+			 * so don't send those for call waiting as that will just lengthen the CID spill
+			 * for no good reason.
+			 */
 			p->cidlen = ast_callerid_full_generate(p->cidspill,
 				caller->id.name.str,
 				caller->id.number.str,
 				NULL,
-				-1,
+				analog_p->redirecting_reason,
 				pres,
-				0,
+				analog_p->call_qualifier,
 				CID_TYPE_MDMF,
 				AST_LAW(p));
 		} else {
@@ -6543,6 +6564,36 @@ hangup_out:
 	ast_channel_tech_pvt_set(ast, NULL);
 	ast_free(p->cidspill);
 	p->cidspill = NULL;
+
+	if (p->reoriginate && p->sig == SIG_FXOKS && dahdi_analog_lib_handles(p->sig, p->radio, 0)) {
+		/* Automatic reorigination: if all calls towards a user have hung up,
+		 * give dial tone again, so user doesn't need to cycle the hook state manually. */
+		if (my_is_off_hook(p) && !p->owner) {
+			/* 2 important criteria: channel must be off-hook, with no calls remaining (no owner) */
+			ast_debug(1, "Queuing reorigination for channel %d\n", p->channel);
+			my_play_tone(p, SUB_REAL, -1); /* Stop any congestion tone that may be present. */
+			/* Must wait for the loop disconnect to end.
+			 * Sadly, these definitions are in dahdi/kernel.h, not dahdi/user.h
+			 * Calling usleep on an active DAHDI channel is a no-no, but this is okay.
+			 */
+			usleep(800000); /* DAHDI_KEWLTIME + DAHDI_AFTERKEWLTIME */
+			/* If the line is still off-hook and ownerless, actually queue the reorigination.
+			 * do_monitor will actually go ahead and do it. */
+			if (!p->owner && my_is_off_hook(p)) {
+				p->doreoriginate = 1; /* Tell do_monitor to reoriginate this channel */
+				/* Note, my_off_hook will fail if called before the loop disconnect has finished
+				 * (important for FXOKS signaled channels). This is because DAHDI will reject
+				 * DAHDI_OFFHOOK while the channel is in TXSTATE_KEWL or TXSTATE_AFTERKEWL,
+				 * so we have to wait for that to finish (see comment above).
+				 * do_monitor itself cannot block, so make the blocking usleep call
+				 * here in the channel thread instead.
+				 */
+				my_off_hook(p); /* Now, go ahead and take the channel back off hook (sig_analog put it on hook) */
+			} else {
+				ast_debug(1, "Channel %d is no longer eligible for reorigination (went back on hook or became in use)\n", p->channel);
+			}
+		}
+	}
 
 	ast_mutex_unlock(&p->lock);
 	ast_verb(3, "Hungup '%s'\n", ast_channel_name(ast));
@@ -11971,6 +12022,26 @@ static void *do_monitor(void *data)
 						else
 							doomed = handle_init_event(i, res);
 					}
+					if (i->doreoriginate && res == DAHDI_EVENT_HOOKCOMPLETE) {
+						/* Actually automatically reoriginate this FXS line, if directed to.
+						 * We should get a DAHDI_EVENT_HOOKCOMPLETE from the loop disconnect
+						 * doing its thing (one reason why this is for FXOKS only: FXOLS
+						 * hangups don't give us any DAHDI events to piggyback off of)*/
+						i->doreoriginate = 0;
+						/* Double check the channel is still off-hook. There's only about a millisecond
+						 * between when doreoriginate is set high and we see that here, but just to be safe. */
+						if (!my_is_off_hook(i)) {
+							ast_debug(1, "Woah! Went back on hook before reoriginate could happen on channel %d\n", i->channel);
+						} else {
+							ast_verb(3, "Automatic reorigination on channel %d\n", i->channel);
+							res = DAHDI_EVENT_RINGOFFHOOK; /* Pretend that the physical channel just went off hook */
+							if (dahdi_analog_lib_handles(i->sig, i->radio, i->oprmode)) {
+								doomed = (struct dahdi_pvt *) analog_handle_init_event(i->sig_pvt, dahdievent_to_analogevent(res));
+							} else {
+								doomed = handle_init_event(i, res);
+							}
+						}
+					}
 					ast_mutex_lock(&iflock);
 				}
 			}
@@ -12848,6 +12919,7 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
 		}
 #endif
 		tmp->immediate = conf->chan.immediate;
+		tmp->immediatering = conf->chan.immediatering;
 		tmp->transfertobusy = conf->chan.transfertobusy;
 		tmp->dialmode = conf->chan.dialmode;
 		if (chan_sig & __DAHDI_SIG_FXS) {
@@ -12876,6 +12948,8 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
 		tmp->usedistinctiveringdetection = usedistinctiveringdetection;
 		tmp->callwaitingcallerid = conf->chan.callwaitingcallerid;
 		tmp->threewaycalling = conf->chan.threewaycalling;
+		tmp->threewaysilenthold = conf->chan.threewaysilenthold;
+		tmp->calledsubscriberheld = conf->chan.calledsubscriberheld; /* Not used in chan_dahdi.c, just analog pvt, but must exist on the DAHDI pvt anyways */
 		tmp->adsi = conf->chan.adsi;
 		tmp->use_smdi = conf->chan.use_smdi;
 		tmp->permhidecallerid = conf->chan.hidecallerid;
@@ -13064,6 +13138,7 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
 		tmp->ani_wink_time = conf->chan.ani_wink_time;
 		tmp->ani_timeout = conf->chan.ani_timeout;
 		tmp->hanguponpolarityswitch = conf->chan.hanguponpolarityswitch;
+		tmp->reoriginate = conf->chan.reoriginate;
 		tmp->sendcalleridafter = conf->chan.sendcalleridafter;
 		ast_cc_copy_config_params(tmp->cc_params, conf->chan.cc_params);
 
@@ -13173,12 +13248,15 @@ static struct dahdi_pvt *mkintf(int channel, const struct dahdi_chan_conf *conf,
 				analog_p->ani_wink_time = conf->chan.ani_wink_time;
 				analog_p->hanguponpolarityswitch = conf->chan.hanguponpolarityswitch;
 				analog_p->permcallwaiting = conf->chan.callwaiting; /* permcallwaiting possibly modified in analog_config_complete */
+				analog_p->calledsubscriberheld = conf->chan.calledsubscriberheld; /* Only actually used in analog pvt, not DAHDI pvt */
 				analog_p->callreturn = conf->chan.callreturn;
 				analog_p->cancallforward = conf->chan.cancallforward;
 				analog_p->canpark = conf->chan.canpark;
 				analog_p->dahditrcallerid = conf->chan.dahditrcallerid;
 				analog_p->immediate = conf->chan.immediate;
-				analog_p->permhidecallerid = conf->chan.permhidecallerid;
+				analog_p->immediatering = conf->chan.immediatering;
+				analog_p->permhidecallerid = conf->chan.hidecallerid; /* hidecallerid is the config setting, not permhidecallerid (~permcallwaiting above) */
+				/* It's not necessary to set analog_p->hidecallerid here, sig_analog will set hidecallerid=permhidecaller before each call */
 				analog_p->pulse = conf->chan.pulse;
 				analog_p->threewaycalling = conf->chan.threewaycalling;
 				analog_p->transfer = conf->chan.transfer;
@@ -18221,6 +18299,8 @@ static int process_dahdi(struct dahdi_chan_conf *confp, const char *cat, struct 
 				confp->chan.cid_start = CID_START_RING;
 		} else if (!strcasecmp(v->name, "threewaycalling")) {
 			confp->chan.threewaycalling = ast_true(v->value);
+		} else if (!strcasecmp(v->name, "threewaysilenthold")) {
+			confp->chan.threewaysilenthold = ast_true(v->value);
 		} else if (!strcasecmp(v->name, "cancallforward")) {
 			confp->chan.cancallforward = ast_true(v->value);
 		} else if (!strcasecmp(v->name, "relaxdtmf")) {
@@ -18263,6 +18343,8 @@ static int process_dahdi(struct dahdi_chan_conf *confp, const char *cat, struct 
 			confp->chan.busycount = atoi(v->value);
 		} else if (!strcasecmp(v->name, "busypattern")) {
 			parse_busy_pattern(v, &confp->chan.busy_cadence);
+		} else if (!strcasecmp(v->name, "calledsubscriberheld")) {
+			confp->chan.calledsubscriberheld = ast_true(v->value);
 		} else if (!strcasecmp(v->name, "callprogress")) {
 			confp->chan.callprogress &= ~CALLPROGRESS_PROGRESS;
 			if (ast_true(v->value))
@@ -18383,6 +18465,8 @@ static int process_dahdi(struct dahdi_chan_conf *confp, const char *cat, struct 
 			}
 		} else if (!strcasecmp(v->name, "immediate")) {
 			confp->chan.immediate = ast_true(v->value);
+		} else if (!strcasecmp(v->name, "immediatering")) {
+			confp->chan.immediatering = ast_true(v->value);
 		} else if (!strcasecmp(v->name, "transfertobusy")) {
 			confp->chan.transfertobusy = ast_true(v->value);
 		} else if (!strcasecmp(v->name, "dialmode")) {
@@ -18493,6 +18577,8 @@ static int process_dahdi(struct dahdi_chan_conf *confp, const char *cat, struct 
 			confp->chan.ani_timeout = atoi(v->value);
 		} else if (!strcasecmp(v->name, "hanguponpolarityswitch")) {
 			confp->chan.hanguponpolarityswitch = ast_true(v->value);
+		} else if (!strcasecmp(v->name, "autoreoriginate")) {
+			confp->chan.reoriginate = ast_true(v->value);
 		} else if (!strcasecmp(v->name, "sendcalleridafter")) {
 			confp->chan.sendcalleridafter = atoi(v->value);
 		} else if (!strcasecmp(v->name, "mwimonitornotify")) {

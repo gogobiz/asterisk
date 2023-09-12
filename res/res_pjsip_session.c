@@ -3641,6 +3641,28 @@ struct ast_sip_session *ast_sip_dialog_get_session(pjsip_dialog *dlg)
 	return session;
 }
 
+pjsip_dialog *ast_sip_session_get_dialog(const struct ast_sip_session *session)
+{
+	pjsip_inv_session *inv_session = session->inv_session;
+
+	if (!inv_session) {
+		return NULL;
+	}
+
+	return inv_session->dlg;
+}
+
+pjsip_inv_state ast_sip_session_get_pjsip_inv_state(const struct ast_sip_session *session)
+{
+	pjsip_inv_session *inv_session = session->inv_session;
+
+	if (!inv_session) {
+		return PJSIP_INV_STATE_NULL;
+	}
+
+	return inv_session->state;
+}
+
 /*! \brief Fetch just the Caller ID number in order of PAI, RPID, From */
 static int fetch_callerid_num(struct ast_sip_session *session, pjsip_rx_data *rdata, char *buf, size_t len)
 {
@@ -4031,15 +4053,20 @@ static int new_invite(struct new_invite *invite)
 	 * so let's go ahead and send a 100 Trying out to stop any
 	 * retransmissions.
 	 */
+	if (pjsip_inv_initial_answer(invite->session->inv_session, invite->rdata, 100, NULL, NULL, &tdata) != PJ_SUCCESS) {
+		if (tdata) {
+			pjsip_inv_send_msg(invite->session->inv_session, tdata);
+		} else {
+			pjsip_inv_terminate(invite->session->inv_session, 500, PJ_TRUE);
+		}
+		goto end;
+	}
+
 	ast_trace(-1, "%s: Call (%s:%s) to extension '%s' sending 100 Trying\n",
 		ast_sip_session_get_name(invite->session),
 		invite->rdata->tp_info.transport->type_name,
 		pj_sockaddr_print(&invite->rdata->pkt_info.src_addr, buffer, sizeof(buffer), 3),
 		invite->session->exten);
-	if (pjsip_inv_initial_answer(invite->session->inv_session, invite->rdata, 100, NULL, NULL, &tdata) != PJ_SUCCESS) {
-		pjsip_inv_terminate(invite->session->inv_session, 500, PJ_TRUE);
-		goto end;
-	}
 	ast_sip_session_send_response(invite->session, tdata);
 
 	sdp_info = pjsip_rdata_get_sdp_info(invite->rdata);
