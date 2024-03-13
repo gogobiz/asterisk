@@ -847,14 +847,6 @@ static int transport_apply(const struct ast_sorcery *sorcery, void *obj)
 			ast_log(LOG_DEBUG, "TCP Keepalive enabled for transport. Idle Time: %d, Interval: %d, Count: %d\n",
 					transport->tcp_keepidle_time, transport->tcp_keepintvl_time, transport->tcp_keepcnt);
 
-			static int enable = 1;
-
-			cfg.sockopt_params.options[sockopt_count].level = pj_SOL_SOCKET();
-			cfg.sockopt_params.options[sockopt_count].optname = SO_KEEPALIVE;
-			cfg.sockopt_params.options[sockopt_count].optval = &enable;
-			cfg.sockopt_params.options[sockopt_count].optlen = sizeof(enable);
-			sockopt_count++;
-
 			cfg.sockopt_params.options[sockopt_count].level = pj_SOL_TCP();
 			cfg.sockopt_params.options[sockopt_count].optname = TCP_KEEPIDLE;
 			cfg.sockopt_params.options[sockopt_count].optval = &transport->tcp_keepidle_time;
