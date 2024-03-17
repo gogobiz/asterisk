@@ -844,8 +844,8 @@ static int transport_apply(const struct ast_sorcery *sorcery, void *obj)
 		sockopt_count++;
 
 		if (transport->tcp_keepalive_enable) {
-			ast_log(LOG_DEBUG, "TCP Keepalive enabled for transport. Idle Time: %d, Interval: %d, Count: %d\n",
-					transport->tcp_keepidle_time, transport->tcp_keepintvl_time, transport->tcp_keepcnt);
+			ast_log(LOG_DEBUG, "TCP Keepalive enabled for transport '%s'. Idle Time: %d, Interval: %d, Count: %d\n",
+					ast_sorcery_object_get_id(obj), transport->tcp_keepidle_time, transport->tcp_keepintvl_time, transport->tcp_keepcnt);
 
 			static int enable = 1;
 
@@ -889,6 +889,7 @@ static int transport_apply(const struct ast_sorcery *sorcery, void *obj)
 	} else if (transport->type == AST_TRANSPORT_TLS) {
 #if defined(PJ_HAS_SSL_SOCK) && PJ_HAS_SSL_SOCK != 0
 		static int option = 1;
+		int sockopt_count = 0;
 
 		if (transport->async_operations > 1 && ast_compare_versions(pj_get_version(), "2.5.0") < 0) {
 			ast_log(LOG_ERROR, "Transport: %s: When protocol=tls and pjproject version < 2.5.0, async_operations can't be > 1\n",
@@ -904,7 +905,40 @@ static int transport_apply(const struct ast_sorcery *sorcery, void *obj)
 		temp_state->state->tls.sockopt_params.options[0].optname = pj_TCP_NODELAY();
 		temp_state->state->tls.sockopt_params.options[0].optval = &option;
 		temp_state->state->tls.sockopt_params.options[0].optlen = sizeof(option);
-		temp_state->state->tls.sockopt_params.cnt = 1;
+		sockopt_count++;
+
+		if (transport->tcp_keepalive_enable) {
+			ast_log(LOG_DEBUG, "TCP Keepalive enabled for transport '%s'. Idle Time: %d, Interval: %d, Count: %d\n",
+				ast_sorcery_object_get_id(obj), transport->tcp_keepidle_time, transport->tcp_keepintvl_time, transport->tcp_keepcnt);
+
+			static int enable = 1;
+
+			temp_state->state->tls.sockopt_params.options[sockopt_count].level = pj_SOL_SOCKET();
+			temp_state->state->tls.sockopt_params.options[sockopt_count].optname = SO_KEEPALIVE;
+			temp_state->state->tls.sockopt_params.options[sockopt_count].optval = &enable;
+			temp_state->state->tls.sockopt_params.options[sockopt_count].optlen = sizeof(enable);
+			sockopt_count++;
+
+			temp_state->state->tls.sockopt_params.options[sockopt_count].level = pj_SOL_TCP();
+			temp_state->state->tls.sockopt_params.options[sockopt_count].optname = TCP_KEEPIDLE;
+			temp_state->state->tls.sockopt_params.options[sockopt_count].optval = &transport->tcp_keepidle_time;
+			temp_state->state->tls.sockopt_params.options[sockopt_count].optlen = sizeof(transport->tcp_keepidle_time);
+			sockopt_count++;
+
+			temp_state->state->tls.sockopt_params.options[sockopt_count].level = pj_SOL_TCP();
+			temp_state->state->tls.sockopt_params.options[sockopt_count].optname = TCP_KEEPINTVL;
+			temp_state->state->tls.sockopt_params.options[sockopt_count].optval = &transport->tcp_keepintvl_time;
+			temp_state->state->tls.sockopt_params.options[sockopt_count].optlen = sizeof(transport->tcp_keepintvl_time);
+			sockopt_count++;
+
+			temp_state->state->tls.sockopt_params.options[sockopt_count].level = pj_SOL_TCP();
+			temp_state->state->tls.sockopt_params.options[sockopt_count].optname = TCP_KEEPCNT;
+			temp_state->state->tls.sockopt_params.options[sockopt_count].optval = &transport->tcp_keepcnt;
+			temp_state->state->tls.sockopt_params.options[sockopt_count].optlen = sizeof(transport->tcp_keepcnt);
+			sockopt_count++;
+		}
+
+		temp_state->state->tls.sockopt_params.cnt = sockopt_count;
 
 		for (i = 0; i < BIND_TRIES && res != PJ_SUCCESS; i++) {
 			if (perm_state && perm_state->state && perm_state->state->factory
