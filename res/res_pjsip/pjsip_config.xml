@@ -1820,7 +1820,7 @@
 					<description><para>
 						Specifies the maximum number of TCP keepalive probes to send before considering the connection dead and notifying the application. If the peer does not respond after this many probes, the connection is considered broken.
 					</para></description>
-				</configOption>				
+				</configOption>
 				<configOption name="type">
 					<synopsis>Must be of type 'transport'.</synopsis>
 				</configOption>
